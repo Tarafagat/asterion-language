@@ -30,9 +30,17 @@ Este proyecto todavía no tiene releases etiquetados en git.
   del Registry de adapters).
 - CLI standalone (`cmd/asterion-language`) y comando `asterion language
   check` en `asterion-core`.
-- 8 ejemplos reales en `examples/`, corridos como golden tests contra el
+- 9 ejemplos reales en `examples/`, corridos como golden tests contra el
   compilador (incluido uno deliberadamente roto, para probar que los
   diagnósticos salen con el código y el detalle correctos).
+- **`docs/TUTORIAL.md`**: tutorial con ejemplos en vivo — cada bloque de
+  código corrido de verdad contra el compilador (`check` y `plugin
+  from-ast`), con la salida real al lado. Cubre por qué la sintaxis se
+  parece a Python (indentación, literales `Size`/`Duration`, `def`
+  opcional a nivel de archivo, declarar-antes-de-usar) y los dos DSL
+  (infraestructura y manifiesto de plugin) con un ejemplo de éxito y uno
+  de error real para cada uno. Nuevo `examples/tutorial-ping-plugin.ast`
+  (plugin de juguete, para el ejemplo de `Contract.*` del tutorial).
 
 ### Not implemented (a propósito)
 - `plan`/`apply` — ver README, sección "Qué falta".

@@ -1,0 +1,27 @@
+language "0.1"
+
+# Ejemplo mínimo para el tutorial (ver docs/TUTORIAL.md) — un plugin de
+# juguete con un solo endpoint. Para un ejemplo real completo, más denso,
+# ver plugin-manifest.ast (el manifiesto real de asterion-mail-plugin-basic).
+#
+# Compilar:
+#   asterion plugin from-ast examples/tutorial-ping-plugin.ast --out /tmp/tutorial-ping
+
+Contract.define(
+    name="tutorial-ping",
+    version="0.1.0",
+    description="Plugin de ejemplo: responde /ping con la hora del servidor.",
+    author="Vos",
+    license="MIT",
+)
+
+Contract.start(command="./tutorial-ping", port=0)
+Contract.health_path(path="/health")
+Contract.api(base_path="/api/v1")
+
+Contract.action(
+    name="ping",
+    method="GET",
+    endpoint="/ping",
+    description="Devuelve {status: \"ok\", timestamp: ...}",
+)

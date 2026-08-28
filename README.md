@@ -13,6 +13,12 @@ origen a este repo: no hay ningún DAG que reutilizar en Go (el único vive en
 Core son stubs (`ErrNotImplemented`) — así que un `apply` real contra la
 nube está bloqueado aguas arriba, no por este compilador.
 
+**Tutorial con ejemplos en vivo**: [`docs/TUTORIAL.md`](docs/TUTORIAL.md)
+— cada bloque de código de ahí está corrido de verdad contra este mismo
+compilador, con la salida real al lado (incluida la parte de por qué la
+sintaxis se parece a Python, y los dos DSL — infraestructura y manifiesto
+de plugin — con sus propios ejemplos de error reales).
+
 ## Qué hace hoy
 
 ```bash
