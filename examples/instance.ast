@@ -1,0 +1,9 @@
+language "0.1"
+
+def main():
+    web = Provider.aws.instance(
+        image="ubuntu-24.04",
+        cpu=4,
+        memory=8GB
+    )
+    return web

@@ -1,0 +1,6 @@
+language "0.1"
+
+def main():
+    aws_web = Provider.aws.instance(image="ubuntu-24.04", cpu=2, memory=4GB)
+    gcp_web = Provider.gcp.instance(image="ubuntu-24.04", cpu=2, memory=4GB)
+    return aws_web, gcp_web

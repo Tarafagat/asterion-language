@@ -1,0 +1,15 @@
+language "0.1"
+
+def main():
+    network = Network(cidr="10.0.0.0/24")
+    web = Provider.aws.instance(
+        image="ubuntu-24.04",
+        cpu=4,
+        memory=8GB,
+        network=network
+    )
+    db = Provider.aws.database(
+        engine="postgres",
+        network=network
+    )
+    return web, db

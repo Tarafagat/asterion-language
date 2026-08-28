@@ -1,0 +1,15 @@
+language "0.1"
+
+def main():
+    # referencia a algo que nunca se declaró -> ASTR202
+    broken = Provider.aws.instance(image="ubuntu-24.04", cpu=2, memory=4GB, network=nunca_declarada)
+
+    # OCI no declara pricing -> si algún día "pricing" fuera un método de
+    # recurso esto lo probaría; hoy sirve para documentar la asimetría real
+    # entre providers (ver semantic/resolver.go).
+    dup = Provider.aws.instance(image="ubuntu-24.04", cpu=1, memory=1GB)
+    dup = Provider.aws.instance(image="ubuntu-24.04", cpu=1, memory=1GB)  # ASTR201: nombre de recurso repetido
+
+    ghost = Provider.oci.load_balancer(cpu=1)  # ASTR211: método no reconocido
+
+    return broken

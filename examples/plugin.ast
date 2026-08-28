@@ -1,0 +1,10 @@
+language "0.1"
+
+# La sintaxis exacta para referenciar un recurso de un plugin (Asterion
+# Plugin Contract) todavía es PLANNED — ver la sección "Plugins" del
+# README. Esto parsea y pasa el chequeo de referencias hoy, pero
+# 'mailer' no recibe ningún chequeo de capability especial todavía (no es
+# ni Provider.* ni Lab.*, cae en la rama "llamada común").
+def main():
+    mailer = Plugin.smtp.instance(host="smtp.example.com")
+    return mailer

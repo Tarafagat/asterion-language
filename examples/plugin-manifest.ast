@@ -1,0 +1,47 @@
+language "0.1"
+
+# Compila a un plugin.yaml completo con:
+#   asterion plugin from-ast examples/plugin-manifest.ast --out mi-plugin
+# Este ejemplo es, campo por campo, el plugin.yaml real de
+# asterion-mail-plugin-basic (ver ese repo) — no un caso de juguete.
+
+Contract.define(
+    name="asterion-mail-plugin-basic",
+    version="0.1.0",
+    description="Envía emails personalizados por SMTP real, con plantillas reusables.",
+    author="Asterion",
+    license="Apache-2.0",
+)
+
+Contract.language(name="go", version="1.25")
+
+Contract.start(command="./asterion-mail-plugin-basic", port=0)
+Contract.health_path(path="/health")
+
+Contract.api(base_path="/api/v1", openapi="api/openapi.yaml")
+
+Contract.permissions(
+    network=["smtp"],
+    filesystem=["./data"],
+    secrets=true,
+)
+
+Contract.config(key="smtp_host", label="Servidor SMTP (host)", type="string", required=true)
+Contract.config(key="smtp_port", label="Puerto SMTP", type="number", default="587")
+Contract.config(key="username", label="Usuario SMTP", type="string")
+Contract.config(key="password", label="Contraseña SMTP", type="string", secret=true)
+Contract.config(key="from_address", label="Dirección remitente", type="string", required=true)
+Contract.config(key="from_name", label="Nombre del remitente", type="string")
+Contract.config(key="use_tls", label="TLS implícito (desmarcado = STARTTLS)", type="bool", default="false")
+
+Contract.resource(
+    name="templates",
+    endpoint="/templates",
+    schema="resources/schemas/template.json",
+    primary_key="id",
+    crud=["create", "read", "update", "delete", "list"],
+)
+
+Contract.action(name="send_email", method="POST", endpoint="/send", description="Envía un email real (con o sin plantilla, con variables de personalización)")
+Contract.action(name="get_config_status", method="GET", endpoint="/config", description="Estado de la configuración SMTP (sin exponer el password)")
+Contract.action(name="test_config", method="POST", endpoint="/config/test", description="Conecta y autentica contra el servidor SMTP sin mandar mail")

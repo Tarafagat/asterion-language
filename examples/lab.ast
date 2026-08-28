@@ -1,0 +1,6 @@
+language "0.1"
+
+def experiment():
+    server = Lab.vm(image="ubuntu-24.04", cpu=2, memory=4GB)
+    nginx = Lab.container(image="nginx")
+    return server, nginx
