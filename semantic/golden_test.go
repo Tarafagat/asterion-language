@@ -18,14 +18,14 @@ func TestGoldenExamples(t *testing.T) {
 		wantErrors bool
 		wantCodes  []string // si wantErrors, al menos estos códigos deben aparecer
 	}{
-		{"minimal.ast", false, nil},
-		{"instance.ast", false, nil},
-		{"network.ast", false, nil},
-		{"multi-resource.ast", false, nil},
-		{"provider.ast", false, nil},
-		{"lab.ast", false, nil},
-		{"plugin.ast", false, nil},
-		{"error.ast", true, []string{"ASTR202", "ASTR201", "ASTR211"}},
+		{"minimal.asterion", false, nil},
+		{"instance.asterion", false, nil},
+		{"network.asterion", false, nil},
+		{"multi-resource.asterion", false, nil},
+		{"provider.asterion", false, nil},
+		{"lab.asterion", false, nil},
+		{"plugin.asterion", false, nil},
+		{"error.asterion", true, []string{"ASTR202", "ASTR201", "ASTR211"}},
 	}
 
 	for _, tc := range cases {

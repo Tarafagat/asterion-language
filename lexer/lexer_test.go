@@ -24,7 +24,7 @@ func assertTypes(t *testing.T, got []Token, want []TokenType) {
 }
 
 func TestIdentifiersAndKeywords(t *testing.T) {
-	toks, diags := Lex([]byte("def main web_1"), "t.ast")
+	toks, diags := Lex([]byte("def main web_1"), "t.asterion")
 	if diags.HasErrors() {
 		t.Fatalf("no esperaba errores: %s", diags)
 	}
@@ -35,7 +35,7 @@ func TestIdentifiersAndKeywords(t *testing.T) {
 }
 
 func TestNumbersSizesAndDurations(t *testing.T) {
-	toks, diags := Lex([]byte("4 3.5 8GB 500MB 30s 5m"), "t.ast")
+	toks, diags := Lex([]byte("4 3.5 8GB 500MB 30s 5m"), "t.asterion")
 	if diags.HasErrors() {
 		t.Fatalf("no esperaba errores: %s", diags)
 	}
@@ -56,7 +56,7 @@ func TestNumbersSizesAndDurations(t *testing.T) {
 }
 
 func TestStringsAndComments(t *testing.T) {
-	toks, diags := Lex([]byte("\"hola mundo\" # esto es un comentario\n'con comillas simples'"), "t.ast")
+	toks, diags := Lex([]byte("\"hola mundo\" # esto es un comentario\n'con comillas simples'"), "t.asterion")
 	if diags.HasErrors() {
 		t.Fatalf("no esperaba errores: %s", diags)
 	}
@@ -67,7 +67,7 @@ func TestStringsAndComments(t *testing.T) {
 
 func TestIndentation(t *testing.T) {
 	src := "def main():\n    x = 1\n    y = 2\nz = 3\n"
-	toks, diags := Lex([]byte(src), "t.ast")
+	toks, diags := Lex([]byte(src), "t.asterion")
 	if diags.HasErrors() {
 		t.Fatalf("no esperaba errores: %s", diags)
 	}
@@ -84,7 +84,7 @@ func TestIndentation(t *testing.T) {
 
 func TestBlankLinesDontAffectIndentation(t *testing.T) {
 	src := "def main():\n    x = 1\n\n    # comentario suelto\n\n    y = 2\n"
-	toks, diags := Lex([]byte(src), "t.ast")
+	toks, diags := Lex([]byte(src), "t.asterion")
 	if diags.HasErrors() {
 		t.Fatalf("no esperaba errores: %s", diags)
 	}
@@ -100,7 +100,7 @@ func TestBlankLinesDontAffectIndentation(t *testing.T) {
 
 func TestParensSuppressNewlines(t *testing.T) {
 	src := "f(\n  a,\n  b\n)\n"
-	toks, diags := Lex([]byte(src), "t.ast")
+	toks, diags := Lex([]byte(src), "t.asterion")
 	if diags.HasErrors() {
 		t.Fatalf("no esperaba errores: %s", diags)
 	}
@@ -108,7 +108,7 @@ func TestParensSuppressNewlines(t *testing.T) {
 }
 
 func TestTabsAreRejected(t *testing.T) {
-	_, diags := Lex([]byte("def main():\n\tx = 1\n"), "t.ast")
+	_, diags := Lex([]byte("def main():\n\tx = 1\n"), "t.asterion")
 	if !diags.HasErrors() {
 		t.Fatal("esperaba un error por usar tabs")
 	}
@@ -124,7 +124,7 @@ func TestTabsAreRejected(t *testing.T) {
 }
 
 func TestUnknownUnitIsReported(t *testing.T) {
-	_, diags := Lex([]byte("5XB"), "t.ast")
+	_, diags := Lex([]byte("5XB"), "t.asterion")
 	if !diags.HasErrors() {
 		t.Fatal("esperaba un error por unidad desconocida")
 	}

@@ -78,7 +78,7 @@ var genericResourceTypes = map[string]bool{
 // de un namespace — nunca se resuelven contra el scope de variables
 // porque no son valores, son espacios de nombres (Provider.aws.*,
 // Lab.*, Plugin.* — esta última con sintaxis todavía PLANNED, ver
-// examples/plugin.ast) o constructores de tipo genéricos.
+// examples/plugin.asterion) o constructores de tipo genéricos.
 func isBuiltinRoot(name string) bool {
 	switch name {
 	case "Provider", "Lab", "Plugin":

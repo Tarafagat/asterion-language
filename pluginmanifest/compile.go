@@ -5,23 +5,23 @@
 // declara cada campo explícitamente con llamadas Contract.<verbo>(...),
 // así que no hay nada que adivinar mal.
 //
-// Un archivo de definición de plugin es sintácticamente un .ast normal
-// (mismo lexer, mismo parser — nada de este paquete los toca) pero
-// semánticamente distinto de un .ast de infraestructura: es una secuencia
-// plana de llamadas Contract.<verbo>(clave=valor, ...), nunca def, nunca
-// asignaciones, nunca Provider.*/Lab.*. Por eso este compilador NO pasa
-// por semantic.Analyzer (que asume el modelo de recursos/scope de
+// Un archivo de definición de plugin es sintácticamente un .asterion
+// normal (mismo lexer, mismo parser — nada de este paquete los toca) pero
+// semánticamente distinto de un .asterion de infraestructura: es una
+// secuencia plana de llamadas Contract.<verbo>(clave=valor, ...), nunca
+// def, nunca asignaciones, nunca Provider.*/Lab.*. Por eso este compilador
+// NO pasa por semantic.Analyzer (que asume el modelo de recursos/scope de
 // infraestructura) — es su propio walker, chico, que solo entiende esa
-// forma. Provider.* y Lab.* siguen reservados para .ast de infraestructura,
-// y Plugin.* sigue reservado para *usar* un plugin ya instalado (ver
-// examples/plugin.ast) — "Contract" es un builtin nuevo, sin colisión con
-// ninguno de los dos.
+// forma. Provider.* y Lab.* siguen reservados para .asterion de
+// infraestructura, y Plugin.* sigue reservado para *usar* un plugin ya
+// instalado (ver examples/plugin.asterion) — "Contract" es un builtin
+// nuevo, sin colisión con ninguno de los dos.
 //
 // Deliberadamente NO llama apc.Manifest.Validate() acá — esa validación ya
 // existe, ya está probada, y vive en asterion-plugin-contract/apc; correrla
 // de nuevo acá duplicaría las reglas en dos lugares. Este paquete solo
 // traduce sintaxis a datos; quien lo invoca (asterion-core, 'asterion
-// plugin from-ast') decide cuándo validar el resultado.
+// plugin from-asterion') decide cuándo validar el resultado.
 package pluginmanifest
 
 import (

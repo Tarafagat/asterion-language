@@ -8,7 +8,7 @@ import (
 
 func analyze(t *testing.T, src string) []string {
 	t.Helper()
-	prog, parseDiags := parser.Parse([]byte(src), "t.ast")
+	prog, parseDiags := parser.Parse([]byte(src), "t.asterion")
 	if parseDiags.HasErrors() {
 		t.Fatalf("no esperaba errores de parseo: %s", parseDiags)
 	}
@@ -64,7 +64,7 @@ func TestMissingCapabilityIsReported(t *testing.T) {
 		providers: []string{"oci"},
 		caps:      map[string]map[string]bool{"oci": {"compute": true}},
 	}
-	prog, parseDiags := parser.Parse([]byte("x = Provider.oci.database(engine=\"postgres\")\n"), "t.ast")
+	prog, parseDiags := parser.Parse([]byte("x = Provider.oci.database(engine=\"postgres\")\n"), "t.asterion")
 	if parseDiags.HasErrors() {
 		t.Fatalf("no esperaba errores de parseo: %s", parseDiags)
 	}
@@ -86,7 +86,7 @@ func TestMissingCapabilityIsReported(t *testing.T) {
 func TestDependenciesAreCollected(t *testing.T) {
 	prog, parseDiags := parser.Parse([]byte(
 		"network = Network(cidr=\"10.0.0.0/24\")\nweb = Provider.aws.instance(cpu=1, network=network)\n",
-	), "t.ast")
+	), "t.asterion")
 	if parseDiags.HasErrors() {
 		t.Fatalf("no esperaba errores de parseo: %s", parseDiags)
 	}

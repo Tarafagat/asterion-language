@@ -8,5 +8,5 @@ require gopkg.in/yaml.v3 v3.0.1 // indirect
 
 // asterion-plugin-contract todavía no está publicado en ningún registry —
 // hasta que lo esté, se necesita clonado como carpeta hermana. Lo usa
-// pluginmanifest/ para compilar un .ast al tipo apc.Manifest canónico.
+// pluginmanifest/ para compilar un .asterion al tipo apc.Manifest canónico.
 replace github.com/Tarafagat/asterion-plugin-contract => ../asterion-plugin-contract

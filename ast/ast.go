@@ -13,7 +13,7 @@ type Node interface {
 	Position() diagnostics.Position
 }
 
-// Program es la raíz: todo archivo .ast parsea a uno de estos.
+// Program es la raíz: todo archivo .asterion parsea a uno de estos.
 // LanguageVersion viene del pragma `language "0.1"` (spec/grammar.md §18)
 // — vacío si el archivo no lo declaró, que el semantic analyzer trata como
 // "asumí la versión que este compilador entiende", igual criterio que

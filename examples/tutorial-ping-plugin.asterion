@@ -2,10 +2,10 @@ language "0.1"
 
 # Ejemplo mínimo para el tutorial (ver docs/TUTORIAL.md) — un plugin de
 # juguete con un solo endpoint. Para un ejemplo real completo, más denso,
-# ver plugin-manifest.ast (el manifiesto real de asterion-mail-plugin-basic).
+# ver plugin-manifest.asterion (el manifiesto real de asterion-mail-plugin-basic).
 #
 # Compilar:
-#   asterion plugin from-ast examples/tutorial-ping-plugin.ast --out /tmp/tutorial-ping
+#   asterion plugin from-asterion examples/tutorial-ping-plugin.asterion --out /tmp/tutorial-ping
 
 Contract.define(
     name="tutorial-ping",

@@ -8,7 +8,7 @@ import (
 
 func mustParse(t *testing.T, src string) *ast.Program {
 	t.Helper()
-	prog, diags := Parse([]byte(src), "t.ast")
+	prog, diags := Parse([]byte(src), "t.asterion")
 	if diags.HasErrors() {
 		t.Fatalf("no esperaba errores de parseo: %s", diags)
 	}
@@ -96,7 +96,7 @@ func TestParseErrorRecoveryReportsMultipleProblems(t *testing.T) {
 	// dos líneas rotas de maneras distintas — el parser debería reportar
 	// AMBAS, no solo la primera y morir ahí.
 	src := "a = (\nb = Provider.aws.instance(cpu=)\n"
-	_, diags := Parse([]byte(src), "t.ast")
+	_, diags := Parse([]byte(src), "t.asterion")
 	if !diags.HasErrors() {
 		t.Fatal("esperaba errores")
 	}
@@ -106,7 +106,7 @@ func TestParseErrorRecoveryReportsMultipleProblems(t *testing.T) {
 }
 
 func TestParseUnclosedString(t *testing.T) {
-	_, diags := Parse([]byte("a = \"sin cerrar\n"), "t.ast")
+	_, diags := Parse([]byte("a = \"sin cerrar\n"), "t.asterion")
 	if !diags.HasErrors() {
 		t.Fatal("esperaba error por string sin cerrar")
 	}

@@ -18,7 +18,7 @@ import (
 
 func main() {
 	if len(os.Args) < 3 || os.Args[1] != "check" {
-		fmt.Fprintln(os.Stderr, "uso: asterion-language check <archivo.ast>")
+		fmt.Fprintln(os.Stderr, "uso: asterion-language check <archivo.asterion>")
 		os.Exit(2)
 	}
 	path := os.Args[2]

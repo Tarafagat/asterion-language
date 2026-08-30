@@ -22,8 +22,8 @@ de plugin — con sus propios ejemplos de error reales).
 ## Qué hace hoy
 
 ```bash
-go run ./cmd/asterion-language check examples/instance.ast
-# ✓ examples/instance.ast — 1 statement(s), sin errores
+go run ./cmd/asterion-language check examples/instance.asterion
+# ✓ examples/instance.asterion — 1 statement(s), sin errores
 ```
 
 Lexer → parser → semantic analyzer, con diagnósticos con formato estable
@@ -33,7 +33,7 @@ definió antes de escribir una sola línea de este repo.
 
 ```
 ERROR ASTR212: provider oci no declara la capability requerida por database
-  --> demo.ast:3:9
+  --> demo.asterion:3:9
 
 Required capability:
     database
@@ -51,13 +51,13 @@ No infrastructure was modified.
 
 Un segundo uso del mismo lenguaje, separado de "describir infraestructura
 para que Core la ejecute": describir el **contrato de un plugin nuevo**
-(nombre, config, permisos, resources, actions) en un `.ast`, y compilarlo
+(nombre, config, permisos, resources, actions) en un `.asterion`, y compilarlo
 a un `plugin.yaml` real del [Asterion Plugin
 Contract](https://github.com/Tarafagat/asterion-plugin-contract).
 
 ```bash
-asterion plugin from-ast examples/plugin-manifest.ast --out mi-plugin
-asterion plugin validate mi-plugin   # 'from-ast' ya lo corre solo, esto es para volver a chequear después de editar
+asterion plugin from-asterion examples/plugin-manifest.asterion --out mi-plugin
+asterion plugin validate mi-plugin   # 'from-asterion' ya lo corre solo, esto es para volver a chequear después de editar
 ```
 
 Es la alternativa sin heurística a `asterion plugin from-openapi`: ese
@@ -86,7 +86,7 @@ asterion/
 └── asterion-language/   ← este repo
 ```
 
-`asterion-core` expone `asterion language check <archivo.ast>` — que valida
+`asterion-core` expone `asterion language check <archivo.asterion>` — que valida
 capabilities contra el servicio real de adapters (`cmd/asterion-core`,
 mismo canal HTTP que ya usan `asterion providers`/`asterion capabilities`,
 nunca una copia en memoria del Registry) cuando ese servicio está corriendo,
@@ -130,7 +130,7 @@ Más ejemplos reales, corridos contra este mismo compilador como tests, en
   es parte de esto — no ejecuta nada ni habla con ningún servicio en
   runtime, es una traducción en tiempo de compilación (AST → struct → YAML),
   la misma categoría de cosa que ya es `openapi.Infer` en
-  `asterion-plugin-contract`, solo que con un `.ast` como entrada en vez de
+  `asterion-plugin-contract`, solo que con un `.asterion` como entrada en vez de
   un `openapi.yaml`.
 - **Dos sistemas de capabilities reales, no uno inventado**:
   `internal/capabilities` (dominios cloud: compute/network/storage/...) y
@@ -148,7 +148,7 @@ parser/         descenso recursivo, con recuperación de errores
 diagnostics/    formato único ASTRnnn para lexer/parser/semantic/pluginmanifest
 semantic/       resolución de nombres + validación de provider/capability (infraestructura)
 pluginmanifest/ compila Contract.*(...) a un apc.Manifest (plugin.yaml) — DSL separado, ver arriba
-examples/       archivos .ast reales, usados como golden tests
+examples/       archivos .asterion reales, usados como golden tests
 cmd/asterion-language/  CLI standalone (check, sin depender de asterion-core)
 ```
 
@@ -158,7 +158,7 @@ cmd/asterion-language/  CLI standalone (check, sin depender de asterion-core)
   (Plugins)/`ProvisioningRequest` (Cloud, hoy bloqueado por los stubs de
   adapter).
 - Sintaxis para referenciar plugins (`Plugin.*`) — hoy parsea, no tiene
-  validación de capability propia (ver `examples/plugin.ast`).
+  validación de capability propia (ver `examples/plugin.asterion`).
 - Referenciar un recurso físico ya existente por ID
   (`Instance.reference("inst_xxx")`) — diseñado en el audit, no
   implementado.

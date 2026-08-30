@@ -48,13 +48,14 @@ Contract.action(name="send_email", method="POST", endpoint="/send", description=
 `
 
 // parseOK parsea src y falla el test si el lexer/parser encuentran algún
-// error — separa "el .ast no es válido Asterion Language" (bug del test)
-// de "el compilador de manifiestos rechaza esta forma" (lo que se prueba).
+// error — separa "el .asterion no es válido Asterion Language" (bug del
+// test) de "el compilador de manifiestos rechaza esta forma" (lo que se
+// prueba).
 func parseOK(t *testing.T, src string) *ast.Program {
 	t.Helper()
-	prog, diags := parser.Parse([]byte(src), "test.ast")
+	prog, diags := parser.Parse([]byte(src), "test.asterion")
 	if diags.HasErrors() {
-		t.Fatalf("el .ast de prueba no parsea (bug del test, no del compilador):\n%s", diags.String())
+		t.Fatalf("el .asterion de prueba no parsea (bug del test, no del compilador):\n%s", diags.String())
 	}
 	return prog
 }
@@ -217,12 +218,12 @@ Contract.action(name="two", method="POST", endpoint="/two")
 	}
 }
 
-// TestCompile_ExampleFile compila examples/plugin-manifest.ast (el mismo
-// que linkea el README y el CLI 'asterion plugin from-ast --help') — si
-// esto se rompe, la documentación también quedó mintiendo, mismo criterio
-// que TestGoldenExamples en semantic/.
+// TestCompile_ExampleFile compila examples/plugin-manifest.asterion (el
+// mismo que linkea el README y el CLI 'asterion plugin from-asterion
+// --help') — si esto se rompe, la documentación también quedó mintiendo,
+// mismo criterio que TestGoldenExamples en semantic/.
 func TestCompile_ExampleFile(t *testing.T) {
-	path := filepath.Join("..", "examples", "plugin-manifest.ast")
+	path := filepath.Join("..", "examples", "plugin-manifest.asterion")
 	src, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("no pude leer %s: %v", path, err)

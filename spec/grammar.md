@@ -111,19 +111,19 @@ Un segundo uso de la misma gramática, separado del modelo de
 infraestructura de arriba: en vez de describir qué crear (`Provider.*`,
 `Lab.*`), un archivo de este tipo describe el contrato de un plugin nuevo
 — compila a un `plugin.yaml` (Asterion Plugin Contract) vía
-`asterion plugin from-ast <archivo.ast> --out <dir>`.
+`asterion plugin from-asterion <archivo.asterion> --out <dir>`.
 
-Es sintácticamente el mismo `.ast` (mismo lexer, mismo parser) pero
+Es sintácticamente el mismo `.asterion` (mismo lexer, mismo parser) pero
 semánticamente distinto: una secuencia plana de llamadas
 `Contract.<verbo>(clave=valor, ...)`, sin `def`, sin asignaciones, sin
 `Provider.*`/`Lab.*`/`Plugin.*` — el compilador de este DSL
 (`asterion-language/pluginmanifest`) es un walker propio, no pasa por el
 `semantic.Analyzer` de infraestructura de arriba. `Contract` es un builtin
 nuevo, deliberadamente distinto de `Plugin` (que sigue reservado para
-*usar* un plugin ya instalado desde un `.ast` de infraestructura — ver
-`examples/plugin.ast`).
+*usar* un plugin ya instalado desde un `.asterion` de infraestructura — ver
+`examples/plugin.asterion`).
 
-Ejemplo completo: `examples/plugin-manifest.ast`.
+Ejemplo completo: `examples/plugin-manifest.asterion`.
 
 | Verbo | Cardinalidad | Campo de `apc.Manifest` |
 |---|---|---|
@@ -138,7 +138,7 @@ Ejemplo completo: `examples/plugin-manifest.ast`.
 | `Contract.resource(name, endpoint, schema?, primary_key?, crud?)` | repetible | append a Resources |
 | `Contract.action(name, method, endpoint, description?)` | repetible | append a Actions |
 
-Todos los argumentos van nombrados. `asterion plugin from-ast` corre
+Todos los argumentos van nombrados. `asterion plugin from-asterion` corre
 `apc.Manifest.Validate()` sobre el resultado antes de escribirlo — el
 compilador de este DSL solo traduce sintaxis a datos, nunca duplica esas
 reglas.

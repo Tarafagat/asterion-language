@@ -1,7 +1,7 @@
 language "0.1"
 
 # Compila a un plugin.yaml completo con:
-#   asterion plugin from-ast examples/plugin-manifest.ast --out mi-plugin
+#   asterion plugin from-asterion examples/plugin-manifest.asterion --out mi-plugin
 # Este ejemplo es, campo por campo, el plugin.yaml real de
 # asterion-mail-plugin-basic (ver ese repo) — no un caso de juguete.
 

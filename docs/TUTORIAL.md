@@ -1,8 +1,8 @@
 # Tutorial — Asterion Language en vivo
 
 Todo lo que sigue está corrido de verdad contra este mismo compilador
-(`go run ./cmd/asterion-language check ...` y `asterion plugin from-ast ...`)
-— no es pseudocódigo ni salida inventada. Si copiás un bloque `.ast` de
+(`go run ./cmd/asterion-language check ...` y `asterion plugin from-asterion ...`)
+— no es pseudocódigo ni salida inventada. Si copiás un bloque `.asterion` de
 acá a un archivo y corrés el comando de al lado, te tiene que dar
 exactamente esto mismo.
 
@@ -14,12 +14,12 @@ mezclarlas:
 | | Describe... | Se valida con | Verbo raíz |
 |---|---|---|---|
 | **DSL de infraestructura** | qué instancias/redes querés que tenga tu infraestructura, para que Asterion Core lo ejecute | `semantic.Analyzer` → `asterion-language check` / `asterion language check` | `Provider.*`, `Lab.*`, `Network(...)` |
-| **DSL de manifiesto de plugin** | el contrato de un plugin nuevo (nombre, config, permisos, endpoints), para compilarlo a un `plugin.yaml` | `pluginmanifest.Compile` → `asterion plugin from-ast` | `Contract.*` |
+| **DSL de manifiesto de plugin** | el contrato de un plugin nuevo (nombre, config, permisos, endpoints), para compilarlo a un `plugin.yaml` | `pluginmanifest.Compile` → `asterion plugin from-asterion` | `Contract.*` |
 
 Comparten el mismo lexer y el mismo parser (mismos tokens, misma
 indentación, misma gramática de expresiones) — lo que cambia es qué
 verbo raíz usa el archivo y qué compilador lo procesa después. Un
-archivo `.ast` que usa `Provider.*` nunca pasa por `pluginmanifest`, y uno
+archivo `.asterion` que usa `Provider.*` nunca pasa por `pluginmanifest`, y uno
 que usa `Contract.*` nunca pasa por `semantic.Analyzer` — por eso más
 abajo vas a ver que `asterion-language check` rechaza un archivo
 `Contract.*` (con `ASTR202`, "no está definido") — es el comportamiento
@@ -56,8 +56,8 @@ esperado, no un bug: `check` es para el otro DSL.
   ```
 
   ```
-  $ go run ./cmd/asterion-language check duration-test.ast
-  ✓ duration-test.ast — 1 statement(s), sin errores (contract_version: 0.1)
+  $ go run ./cmd/asterion-language check duration-test.asterion
+  ✓ duration-test.asterion — 1 statement(s), sin errores (contract_version: 0.1)
   ```
 
 - **Declarar antes de usar, siempre.** No hay referencias hacia
@@ -66,14 +66,14 @@ esperado, no un bug: `check` es para el otro DSL.
   (ver el README, sección "Diseño"): mientras esa regla valga, el grafo
   de dependencias entre recursos es un DAG por construcción, sin
   necesitar un detector de ciclos aparte.
-- **`def` es opcional a nivel de archivo.** Un `.ast` puede ser una
+- **`def` es opcional a nivel de archivo.** Un `.asterion` puede ser una
   función (`def main(): ...`) o una secuencia de statements sueltos al
   nivel del módulo — las dos formas son válidas, ver el ejemplo 1 más
   abajo.
 
 ## 2. Ejemplo en vivo — infraestructura mínima
 
-El archivo más chico posible (`examples/minimal.ast`):
+El archivo más chico posible (`examples/minimal.asterion`):
 
 ```python
 language "0.1"
@@ -83,11 +83,11 @@ def main():
 ```
 
 ```
-$ go run ./cmd/asterion-language check examples/minimal.ast
-✓ examples/minimal.ast — 1 statement(s), sin errores (contract_version: 0.1)
+$ go run ./cmd/asterion-language check examples/minimal.asterion
+✓ examples/minimal.asterion — 1 statement(s), sin errores (contract_version: 0.1)
 ```
 
-Sin `def` — statements sueltos a nivel de módulo (`examples/network.ast`),
+Sin `def` — statements sueltos a nivel de módulo (`examples/network.asterion`),
 igual de válido:
 
 ```python
@@ -104,13 +104,13 @@ web = Provider.aws.instance(
 ```
 
 ```
-$ go run ./cmd/asterion-language check examples/network.ast
-✓ examples/network.ast — 2 statement(s), sin errores (contract_version: 0.1)
+$ go run ./cmd/asterion-language check examples/network.asterion
+✓ examples/network.asterion — 2 statement(s), sin errores (contract_version: 0.1)
 ```
 
 ## 3. Ejemplo en vivo — recursos que se referencian entre sí
 
-`examples/multi-resource.ast` — dos recursos (`web`, `db`) comparten la
+`examples/multi-resource.asterion` — dos recursos (`web`, `db`) comparten la
 misma red, y la función devuelve los dos:
 
 ```python
@@ -132,8 +132,8 @@ def main():
 ```
 
 ```
-$ go run ./cmd/asterion-language check examples/multi-resource.ast
-✓ examples/multi-resource.ast — 1 statement(s), sin errores (contract_version: 0.1)
+$ go run ./cmd/asterion-language check examples/multi-resource.asterion
+✓ examples/multi-resource.asterion — 1 statement(s), sin errores (contract_version: 0.1)
 ```
 
 (Un solo "statement" reportado porque a nivel de archivo hay un único
@@ -142,7 +142,7 @@ función, no del programa.)
 
 ## 4. Ejemplo en vivo — errores reales
 
-`examples/error.ast` junta a propósito tres errores distintos, para
+`examples/error.asterion` junta a propósito tres errores distintos, para
 mostrar que el analyzer los reporta **todos juntos**, no uno por
 corrida:
 
@@ -162,15 +162,15 @@ def main():
 ```
 
 ```
-$ go run ./cmd/asterion-language check examples/error.ast
+$ go run ./cmd/asterion-language check examples/error.asterion
 ERROR ASTR202: "nunca_declarada" no está definido — ¿falta declararlo antes de esta línea?
-  --> examples/error.ast:5:85
+  --> examples/error.asterion:5:85
 
 ERROR ASTR201: "dup" ya fue declarado como recurso (línea 10) — los nombres de recurso deben ser únicos dentro de su scope
-  --> examples/error.ast:11:5
+  --> examples/error.asterion:11:5
 
 ERROR ASTR211: Provider.oci.load_balancer no existe — Asterion Core hoy solo expone: instance, network, database, bucket
-  --> examples/error.ast:13:39
+  --> examples/error.asterion:13:39
 
 $ echo $?
 1
@@ -184,7 +184,7 @@ pueda subrayar la línea exacta, no solo mostrar el error en una consola.
 ## 5. Ejemplo en vivo — compilar un manifiesto de plugin (`Contract.*`)
 
 Un archivo nuevo, chico, para este tutorial
-(`examples/tutorial-ping-plugin.ast`) — un plugin de juguete con un solo
+(`examples/tutorial-ping-plugin.asterion`) — un plugin de juguete con un solo
 endpoint:
 
 ```python
@@ -211,13 +211,13 @@ Contract.action(
 ```
 
 ```
-$ asterion plugin from-ast examples/tutorial-ping-plugin.ast --out /tmp/tutorial-ping
-✓ /tmp/tutorial-ping/plugin.yaml generado a partir de examples/tutorial-ping-plugin.ast
+$ asterion plugin from-asterion examples/tutorial-ping-plugin.asterion --out /tmp/tutorial-ping
+✓ /tmp/tutorial-ping/plugin.yaml generado a partir de examples/tutorial-ping-plugin.asterion
   0 config field(s), 0 resource(s), 1 action(s)
 ✓ /tmp/tutorial-ping cumple el Asterion Plugin Contract
 ```
 
-El `plugin.yaml` que salió, tal cual (`from-ast` ya corrió `asterion
+El `plugin.yaml` que salió, tal cual (`from-asterion` ya corrió `asterion
 plugin validate` solo — el "✓ cumple el contrato" de arriba es esa
 validación real, no un supuesto):
 
@@ -243,7 +243,7 @@ actions:
 
 Para un ejemplo real y completo (no de juguete) — el manifiesto real de
 `asterion-mail-plugin-basic`, con `config_schema`, `permissions` y un
-`resource` con CRUD — ver `examples/plugin-manifest.ast`.
+`resource` con CRUD — ver `examples/plugin-manifest.asterion`.
 
 ## 6. Ejemplo en vivo — errores en un manifiesto de plugin
 
@@ -265,17 +265,17 @@ Contract.wat(cosa="no existe")
 ```
 
 ```
-$ asterion plugin from-ast broken-manifest.ast --out /tmp/broken-out
+$ asterion plugin from-asterion broken-manifest.asterion --out /tmp/broken-out
 ERROR ASTR304: Contract.define ya se llamó antes en este archivo — solo puede aparecer una vez
-  --> broken-manifest.ast:5:16
+  --> broken-manifest.asterion:5:16
 
 ERROR ASTR302: Contract.action: falta el argumento obligatorio "endpoint"
-  --> broken-manifest.ast:9:16
+  --> broken-manifest.asterion:9:16
 
 ERROR ASTR301: Contract.wat no existe — verbos reconocidos: define, language, start, health_path, api, permissions, events, config, resource, action
-  --> broken-manifest.ast:11:13
+  --> broken-manifest.asterion:11:13
 
-error: broken-manifest.ast no se pudo compilar a un plugin.yaml
+error: broken-manifest.asterion no se pudo compilar a un plugin.yaml
 ```
 
 Igual que con la infraestructura: los tres errores salen juntos en una
@@ -288,7 +288,7 @@ corregir de a uno y volver a correr para encontrar el siguiente.
 - `README.md` — panorama general, estado real del proyecto, qué falta.
 - `spec/grammar.md` — gramática completa (léxico + EBNF) y la tabla
   completa de verbos `Contract.*` con su cardinalidad y sus campos.
-- `examples/` — todos los `.ast` de este tutorial (y más) corren como
+- `examples/` — todos los `.asterion` de este tutorial (y más) corren como
   golden tests reales del compilador, no son solo ilustrativos.
 - `pluginmanifest/compile_test.go` y `semantic/golden_test.go` — si
   querés ver exactamente qué casos ya están cubiertos por tests.
