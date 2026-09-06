@@ -6,12 +6,19 @@ paso operacional a mano. No es un reemplazo de
 [asterion-core](https://github.com/Tarafagat/asterion-core): el lenguaje
 expresa la intención, Core la ejecuta.
 
-**Estado real: `check` funciona — `plan`/`apply` no existen todavía, a
-propósito.** Ver el audit que motivó este diseño en la conversación que dio
-origen a este repo: no hay ningún DAG que reutilizar en Go (el único vive en
-`asterion-cloud`, en Python, detrás de HTTP), y los Provider Adapters de
-Core son stubs (`ErrNotImplemented`) — así que un `apply` real contra la
-nube está bloqueado aguas arriba, no por este compilador.
+**Estado real: `check` funciona, y `apply` ya crea infraestructura real —
+para un único recurso soportado hoy (`Provider.gcp.instance(...)`), el
+primero de los Provider Adapters de Core con un `CreateInstance` real del
+otro lado.** `plan` (un DAG de múltiples recursos con orden de
+dependencias) sigue sin existir: esta fase aplica un recurso a la vez, en
+el orden en que aparece en el archivo. El nuevo paquete
+[`providerspec`](providerspec/) compila `Provider.<code>.instance(...)` a
+un spec propio (sin depender de `asterion-core`, que es un módulo Go
+aparte); `asterion language apply <archivo.asterion> --credentials-file
+<json>` (en `asterion-core`) hace la conversión final y llama de verdad al
+servicio de adapters. AWS/Azure/OCI siguen dando un diagnóstico claro
+(`ASTR403`, "todavía no soportado para apply") — sus adapters siguen
+siendo stubs, bloqueado aguas arriba, no por este compilador.
 
 **Tutorial con ejemplos en vivo**: [`docs/TUTORIAL.md`](docs/TUTORIAL.md)
 — cada bloque de código de ahí está corrido de verdad contra este mismo
@@ -148,15 +155,22 @@ parser/         descenso recursivo, con recuperación de errores
 diagnostics/    formato único ASTRnnn para lexer/parser/semantic/pluginmanifest
 semantic/       resolución de nombres + validación de provider/capability (infraestructura)
 pluginmanifest/ compila Contract.*(...) a un apc.Manifest (plugin.yaml) — DSL separado, ver arriba
+providerspec/   compila Provider.<code>.instance(...) a un InstanceSpec — lo que 'asterion language apply' aplica de verdad (hoy: solo gcp)
 examples/       archivos .asterion reales, usados como golden tests
 cmd/asterion-language/  CLI standalone (check, sin depender de asterion-core)
 ```
 
 ## Qué falta (a propósito, ver "Fases" en el audit)
 
-- `plan`/`apply` — esperan al traductor hacia LabSpec (Lab)/APC
-  (Plugins)/`ProvisioningRequest` (Cloud, hoy bloqueado por los stubs de
-  adapter).
+- `plan` real (DAG de múltiples recursos con orden de dependencias) — hoy
+  `apply` aplica un recurso a la vez, en el orden del archivo.
+- `apply` para otros dominios/proveedores: LabSpec (Lab), el contrato de
+  plugins vía un `ProvisioningRequest` de Cloud, y AWS/Azure/OCI en
+  `providerspec` — bloqueado por los stubs de esos adapters, no por este
+  compilador (ver `providerspec.CompileInstances`, que ya da un
+  diagnóstico `ASTR403` explícito en vez de fallar en silencio).
+- Resolver `network=`/`subnet=` como referencia a OTRO recurso del mismo
+  archivo (hoy son strings literales — la ruta real del proveedor).
 - Sintaxis para referenciar plugins (`Plugin.*`) — hoy parsea, no tiene
   validación de capability propia (ver `examples/plugin.asterion`).
 - Referenciar un recurso físico ya existente por ID

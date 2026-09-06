@@ -1,0 +1,16 @@
+language "0.1"
+
+# A diferencia de instance.asterion (AWS, todavía sin adapter real del
+# otro lado), esto sí se puede aplicar de verdad: `asterion language
+# apply examples/gcp_instance.asterion --credentials-file <service-account.json>`
+# — ver providerspec.CompileInstances. region es en realidad una ZONA de
+# GCP (instances.insert la exige así); shape_code es el machine type tal
+# cual lo entiende Compute Engine — e2-micro es el más barato de
+# propósito general, y candidato al free tier en zonas como esta.
+def main():
+    web = Provider.gcp.instance(
+        region="us-central1-a",
+        shape_code="e2-micro",
+        image="projects/debian-cloud/global/images/family/debian-12"
+    )
+    return web

@@ -5,6 +5,24 @@ Este proyecto todavía no tiene releases etiquetados en git.
 
 ## [Unreleased]
 
+### Added
+- **Paquete `providerspec` — el traductor que faltaba para que `apply`
+  dejara de ser aspiracional.** Compila `nombre = Provider.gcp.instance(
+  region=..., shape_code=..., image=..., network=..., subnet=...,
+  assign_public_ip=...)` a un `InstanceSpec` propio (este repo es un
+  módulo Go independiente de `asterion-core` — no puede devolver
+  `adapters.InstanceSpec`, que vive bajo `internal/` del otro). Mismo
+  patrón de recorrido que `pluginmanifest/compile.go` (no se apoya en
+  `semantic.Analyzer`, que solo devuelve un `*diagnostics.Bag`, nunca un
+  AST anotado): vuelve a recorrer `prog.Statements` con su propio walker.
+  AWS/Azure/OCI dan un diagnóstico claro (`ASTR403`) en vez de fallar en
+  silencio — sus adapters siguen stubs del otro lado. Nuevos códigos
+  `ASTR400`–`ASTR403`. Nuevo ejemplo `examples/gcp_instance.asterion`.
+  Consumido por `asterion language apply` en `asterion-core`, que hace la
+  conversión final a `adapters.InstanceSpec` y llama de verdad al
+  servicio de adapters — verificado en vivo creando (y borrando) una
+  instancia `e2-micro` real en GCP a partir de este mismo archivo.
+
 ### Changed
 - **Extensión de archivo: `.ast` → `.asterion`.** `.ast` colisionaba con
   el significado universal en compiladores ("Abstract Syntax Tree") —
