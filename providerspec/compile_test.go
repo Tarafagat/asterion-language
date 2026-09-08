@@ -142,6 +142,58 @@ def main():
 	}
 }
 
+func TestCompileInstances_OCI_HappyPath(t *testing.T) {
+	prog := parseOK(t, `
+def main():
+    web = Provider.oci.instance(
+        region="us-ashburn-1",
+        shape_code="VM.Standard.E2.1.Micro",
+        image="ocid1.image.oc1.iad.aaaa",
+        subnet="ocid1.subnet.oc1.iad.aaaa",
+        assign_public_ip=true
+    )
+    return web
+`)
+	specs, diags := CompileInstances(prog)
+	if diags.HasErrors() {
+		t.Fatalf("no esperaba errores, tuve:\n%s", diags.String())
+	}
+	if len(specs) != 1 {
+		t.Fatalf("esperaba 1 spec, hubo %d", len(specs))
+	}
+	spec := specs[0]
+	if spec.Provider != "oci" {
+		t.Errorf("Provider = %q", spec.Provider)
+	}
+	if spec.Region != "us-ashburn-1" {
+		t.Errorf("Region = %q", spec.Region)
+	}
+	if spec.Subnet != "ocid1.subnet.oc1.iad.aaaa" {
+		t.Errorf("Subnet = %q", spec.Subnet)
+	}
+}
+
+// TestCompileInstances_ExampleFile_OCI — mismo criterio que
+// TestCompileInstances_ExampleFile para el ejemplo de GCP.
+func TestCompileInstances_ExampleFile_OCI(t *testing.T) {
+	path := filepath.Join("..", "examples", "oci_instance.asterion")
+	src, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("no pude leer %s: %v", path, err)
+	}
+	prog, parseDiags := parser.Parse(src, path)
+	if parseDiags.HasErrors() {
+		t.Fatalf("%s no debería tener errores de lexer/parser: %s", path, parseDiags)
+	}
+	specs, diags := CompileInstances(prog)
+	if diags.HasErrors() {
+		t.Fatalf("%s no debería tener errores de compilación: %s", path, diags)
+	}
+	if len(specs) != 1 || specs[0].Provider != "oci" || specs[0].Subnet == "" {
+		t.Errorf("specs = %+v", specs)
+	}
+}
+
 func TestCompileInstances_ASTR403_UnsupportedProvider(t *testing.T) {
 	prog := parseOK(t, `
 def main():

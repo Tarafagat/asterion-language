@@ -1,0 +1,17 @@
+language "0.1"
+
+# A diferencia de GCP, OCI no tiene una red por defecto — subnet es
+# obligatorio (el OCID de una subnet ya creada en una VCN de la cuenta).
+# El OCID de la imagen también es específico de cada tenancy/región: sacalo
+# de la consola de OCI (Compute > Instances > Create Instance > Image, ahí
+# aparece el OCID real de la imagen elegida) o de
+# `oci compute image list --compartment-id <tenancy>`.
+def main():
+    web = Provider.oci.instance(
+        region="us-ashburn-1",
+        shape_code="VM.Standard.E2.1.Micro",
+        image="ocid1.image.oc1.iad.aaaaaaaaexampleexampleexampleexampleexampleexampleexampleaaaaaaaaaaaaaaaaaaaa",
+        subnet="ocid1.subnet.oc1.iad.aaaaaaaaexampleexampleexampleexampleexampleexampleexampleaaaaaaaaaaaaaaaaaaaa",
+        assign_public_ip=true
+    )
+    return web

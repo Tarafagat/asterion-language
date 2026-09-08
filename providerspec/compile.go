@@ -1,8 +1,9 @@
 // Package providerspec compila un *ast.Program (el mismo AST que usa
 // 'asterion language check') hacia specs de recursos de proveedor listos
 // para aplicar de verdad — hoy, solo instancias de cómputo
-// (Provider.<code>.instance(...)), el único recurso con un adapter real
-// del otro lado (GCP.CreateInstance, en asterion-core). Es el traductor
+// (Provider.<code>.instance(...)), el único recurso con adapters reales
+// del otro lado (GCP.CreateInstance y OCI.CreateInstance, en
+// asterion-core). Es el traductor
 // que el propio README de este repo marcaba como pendiente para que
 // 'apply' dejara de ser aspiracional.
 //
@@ -41,10 +42,10 @@ type InstanceSpec struct {
 }
 
 // supportedProviders son los proveedores con CreateInstance real del
-// otro lado — hoy, solo GCP. Pedir Provider.aws.instance(...) (o
-// azure/oci) da un diagnóstico claro, nunca se ignora en silencio: esos
-// tres siguen ErrNotImplemented en asterion-core.
-var supportedProviders = map[string]bool{"gcp": true}
+// otro lado — hoy, GCP y OCI. Pedir Provider.aws.instance(...) (o azure)
+// da un diagnóstico claro, nunca se ignora en silencio: esos dos siguen
+// ErrNotImplemented en asterion-core.
+var supportedProviders = map[string]bool{"gcp": true, "oci": true}
 
 // CompileInstances recorre prog.Statements buscando
 // `nombre = Provider.<code>.instance(...)` y devuelve un InstanceSpec por
@@ -122,7 +123,7 @@ func providerCall(callee ast.Expr) (provider, method string, ok bool) {
 func (c *compiler) compileInstance(name, provider string, callExpr *ast.CallExpr) {
 	if !supportedProviders[provider] {
 		c.diags.Errorf(callExpr.Pos, "ASTR403",
-			"Provider.%s.instance(...) todavía no está soportado para apply — hoy solo gcp tiene un adapter real del otro lado", provider)
+			"Provider.%s.instance(...) todavía no está soportado para apply — hoy gcp y oci tienen un adapter real del otro lado", provider)
 		return
 	}
 
