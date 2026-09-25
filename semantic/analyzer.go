@@ -78,10 +78,13 @@ var genericResourceTypes = map[string]bool{
 // de un namespace — nunca se resuelven contra el scope de variables
 // porque no son valores, son espacios de nombres (Provider.aws.*,
 // Lab.*, Plugin.* — esta última con sintaxis todavía PLANNED, ver
-// examples/plugin.asterion) o constructores de tipo genéricos.
+// examples/plugin.asterion — System.* — ver systemspec/compile.go, para
+// declarar un sistema de VARIOS plugins interconectados, distinto de
+// Plugin.* que es para *usar* un recurso de un plugin ya instalado) o
+// constructores de tipo genéricos.
 func isBuiltinRoot(name string) bool {
 	switch name {
-	case "Provider", "Lab", "Plugin":
+	case "Provider", "Lab", "Plugin", "System":
 		return true
 	}
 	return genericResourceTypes[name]
@@ -259,6 +262,14 @@ func (a *Analyzer) classify(expr ast.Expr, sc *scope) resourceKind {
 	if outer, ok := call.Callee.(*ast.AttrExpr); ok {
 		if root, ok := outer.X.(*ast.Ident); ok && root.Name == "Lab" {
 			return resourceKind{Domain: "lab", Detail: outer.Name}
+		}
+		// System.plugin(...) — ver systemspec/compile.go. System.wire(...) no
+		// se clasifica como recurso (nunca se asigna a un nombre, es una
+		// directiva de wiring entre dos ya declarados) — cae en la rama
+		// "llamada común" más abajo, igual que Contract.<verbo> en
+		// pluginmanifest.
+		if root, ok := outer.X.(*ast.Ident); ok && root.Name == "System" && outer.Name == "plugin" {
+			return resourceKind{Domain: "system-plugin", Detail: "plugin"}
 		}
 	}
 	if ident, ok := call.Callee.(*ast.Ident); ok && genericResourceTypes[ident.Name] {

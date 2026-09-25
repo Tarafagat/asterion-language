@@ -23,8 +23,9 @@ siendo stubs, bloqueado aguas arriba, no por este compilador.
 **Tutorial con ejemplos en vivo**: [`docs/TUTORIAL.md`](docs/TUTORIAL.md)
 — cada bloque de código de ahí está corrido de verdad contra este mismo
 compilador, con la salida real al lado (incluida la parte de por qué la
-sintaxis se parece a Python, y los dos DSL — infraestructura y manifiesto
-de plugin — con sus propios ejemplos de error reales).
+sintaxis se parece a Python, y los tres DSL — infraestructura, manifiesto
+de plugin y sistema de plugins — con sus propios ejemplos de error
+reales).
 
 ## Qué hace hoy
 
@@ -77,6 +78,62 @@ Ver `spec/grammar.md` § "DSL de manifiesto de plugin" por la tabla
 completa de verbos, y el paquete `pluginmanifest/` por la implementación
 (no pasa por `semantic.Analyzer` — es su propio compilador chico, sin
 tocar lexer/parser/semantic existentes).
+
+`Contract.language(name, version?, venv?, requirements?)` — para un
+plugin Python, `venv`/`requirements` declaran explícitamente dónde viven
+su virtualenv y su `requirements.txt` (relativos a la raíz del plugin),
+en vez de que Asterion los infiera por convención a partir de
+`start.command`. Sin declararlos, sigue funcionando exactamente como
+antes — es puramente aditivo. Ver `spec/grammar.md` para el detalle.
+
+## Declarar un sistema de plugins (`System.*`)
+
+Un tercer uso del mismo lenguaje: en vez de infraestructura (`Provider.*`)
+o el contrato de UN plugin (`Contract.*`), describir un **sistema de
+varios plugins ya instalables, conectados entre sí** — para levantarlos
+todos juntos, con sus variables de conexión resueltas contra el estado
+REAL de cada uno en runtime, nunca tipeadas a mano.
+
+```python
+language "0.1"
+
+db = System.plugin(route="./mi-plugin-db", principal=true)
+api = System.plugin(route="./mi-plugin-api", requires=["node@20.11.0"])
+
+System.wire(to=api, key="DATABASE_URL", from=db)
+System.wire(to=api, key="DB_NAME", from=db, field="env:database_name")
+```
+
+```bash
+asterion plugin system apply examples/tutorial-system.asterion --build
+asterion plugin system export examples/tutorial-system.asterion --out ./salida
+asterion plugin system watch examples/tutorial-system.asterion   # reaplica solo al detectar cambios en el .asterion
+```
+
+`db`/`api` son asignaciones como cualquier otra en el lenguaje — le ponen
+nombre a un recurso (`System.plugin(...)`) para poder referenciarlo
+después. `System.wire(to=api, from=db, ...)` es la primera construcción
+de todo este repo que resuelve una referencia real entre dos variables
+del mismo archivo (`api`/`db` son identificadores, no strings) — ni
+`pluginmanifest` (todo son literales) ni `providerspec` (rechaza
+referencias explícitamente hoy) lo hacían hasta ahora. `requires`
+permite pedir toolchains para el plugin antes de compilarlo: `"node@<versión
+exacta>"` se descarga sandboxed y se verifica contra el checksum oficial
+de nodejs.org (nunca toca un Node ya instalado en el sistema); `"python"`/`"go"`
+solo verifican que ya están en el PATH (ninguno de los dos tiene un
+tarball portable oficial tan limpio como el de Node para descargarlo
+sandboxed); cualquier otra cosa (`"java"`, `"c"`, `"gcc"`, ...) da un
+error explícito en vez de fingir que se resolvió.
+
+Compilado por `systemspec.Compile` (`systemspec/`) — otro walker propio,
+tampoco pasa por `semantic.Analyzer` ni por `pluginmanifest`. Ver
+`spec/grammar.md` § "DSL de sistema de plugins" por la tabla completa de
+verbos y los códigos `ASTR500`-`ASTR504`, y
+[`docs/TUTORIAL.md`](docs/TUTORIAL.md) § 7 por un ejemplo en vivo
+completo (compilar, aplicar, exportar, con la salida real de cada paso).
+`asterion-core` (`cmd/asterion/plugin_system.go`) es quien instala,
+compila, arranca y conecta de verdad — este paquete solo traduce
+sintaxis a `[]PluginDecl`/`[]WireDecl`.
 
 ## Cómo se conecta con asterion-core
 
@@ -156,6 +213,7 @@ diagnostics/    formato único ASTRnnn para lexer/parser/semantic/pluginmanifest
 semantic/       resolución de nombres + validación de provider/capability (infraestructura)
 pluginmanifest/ compila Contract.*(...) a un apc.Manifest (plugin.yaml) — DSL separado, ver arriba
 providerspec/   compila Provider.<code>.instance(...) a un InstanceSpec — lo que 'asterion language apply' aplica de verdad (hoy: solo gcp)
+systemspec/     compila System.plugin(...)/System.wire(...) a []PluginDecl/[]WireDecl — DSL separado, ver arriba
 examples/       archivos .asterion reales, usados como golden tests
 cmd/asterion-language/  CLI standalone (check, sin depender de asterion-core)
 ```
@@ -170,7 +228,9 @@ cmd/asterion-language/  CLI standalone (check, sin depender de asterion-core)
   compilador (ver `providerspec.CompileInstances`, que ya da un
   diagnóstico `ASTR403` explícito en vez de fallar en silencio).
 - Resolver `network=`/`subnet=` como referencia a OTRO recurso del mismo
-  archivo (hoy son strings literales — la ruta real del proveedor).
+  archivo (hoy son strings literales — la ruta real del proveedor). Esta
+  resolución de referencias YA existe, pero solo en `systemspec`
+  (`System.wire(to=..., from=...)`) — todavía no en `providerspec`.
 - Sintaxis para referenciar plugins (`Plugin.*`) — hoy parsea, no tiene
   validación de capability propia (ver `examples/plugin.asterion`).
 - Referenciar un recurso físico ya existente por ID

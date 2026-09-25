@@ -77,6 +77,11 @@ primary        := IDENT | STRING | INT | FLOAT | SIZE | DURATION
    (todavía no implementada).
 5. **`Plugin.*`** parsea y resuelve referencias, sin ninguna validación
    semántica especial — la sintaxis de recursos de plugin es PLANNED.
+6. **`System.*`** no pasa por estas reglas en absoluto — es un DSL
+   separado (mismo lexer/parser, su propio compilador chico,
+   `systemspec.Compile`, que nunca corre `semantic.Analyzer`), igual que
+   `Contract.*` más abajo. Ver la sección "DSL de sistema de plugins"
+   para sus propias reglas.
 
 ## Códigos de diagnóstico
 
@@ -104,6 +109,11 @@ primary        := IDENT | STRING | INT | FLOAT | SIZE | DURATION
 | ASTR303 | pluginmanifest | un argumento tiene el tipo equivocado (ej. se esperaba una lista) |
 | ASTR304 | pluginmanifest | un verbo de "una sola vez" (`define`/`start`/...) se llamó más de una vez |
 | ASTR305 | pluginmanifest | el archivo nunca llamó `Contract.define(...)` |
+| ASTR500 | systemspec | un nombre de plugin (`db = System.plugin(...)`) ya fue declarado antes en el archivo |
+| ASTR501 | systemspec | falta un argumento obligatorio en `System.plugin`/`System.wire` |
+| ASTR502 | systemspec | un argumento tiene el tipo equivocado (se esperaba string/booleano/lista) |
+| ASTR503 | systemspec | `to`/`from` de `System.wire` no es una referencia (`Ident`) a un plugin |
+| ASTR504 | systemspec | `to`/`from` referencia un nombre que no fue declarado con `System.plugin(...)` antes de esa línea |
 
 ## DSL de manifiesto de plugin (`Contract.*`)
 
@@ -128,7 +138,7 @@ Ejemplo completo: `examples/plugin-manifest.asterion`.
 | Verbo | Cardinalidad | Campo de `apc.Manifest` |
 |---|---|---|
 | `Contract.define(name, version, description?, author?, license?, repo?)` | una vez, obligatorio | Name/Version/Description/Author/License/Repo |
-| `Contract.language(name, version?)` | una vez | Language |
+| `Contract.language(name, version?, venv?, requirements?)` | una vez | Language |
 | `Contract.start(command, port?, args?)` | una vez, obligatorio | Start, Port |
 | `Contract.health_path(path)` | una vez | HealthPath |
 | `Contract.api(base_path?, openapi?)` | una vez | API |
@@ -142,3 +152,47 @@ Todos los argumentos van nombrados. `asterion plugin from-asterion` corre
 `apc.Manifest.Validate()` sobre el resultado antes de escribirlo — el
 compilador de este DSL solo traduce sintaxis a datos, nunca duplica esas
 reglas.
+
+`venv`/`requirements` (ambos opcionales) le dicen a un plugin Python
+DÓNDE viven su virtualenv y su `requirements.txt`, relativos a la raíz
+del plugin (ej. `venv="backend/venv"`,
+`requirements="backend/requirements.txt"`) — sin declararlos, Asterion
+sigue infiriendo ambas rutas por convención a partir de `start.command`
+(ej. `start.command="./backend/venv/bin/python"` ⇒ venv en
+`backend/venv`, requirements en `backend/requirements.txt`), exactamente
+como funcionaba antes de que existiera la forma explícita. Solo tienen
+efecto cuando `language.name == "python"` — `asterion plugin build`
+(`asterion-core`) es quien los usa para decidir dónde crear el venv (si
+no existe) y qué instalar con `pip install -r`.
+
+## DSL de sistema de plugins (`System.*`)
+
+Un tercer uso de la misma gramática: en vez de describir infraestructura
+(`Provider.*`/`Lab.*`) o el contrato de UN plugin (`Contract.*`), un
+archivo de este tipo declara un SISTEMA de varios plugins YA
+instalables, conectados entre sí. Compila con
+`systemspec.Compile` (`asterion-language/systemspec`) — otro walker
+propio, tampoco pasa por `semantic.Analyzer` ni por `pluginmanifest`.
+`asterion-core` lo consume desde `asterion plugin system
+apply/export/watch/watch-install/watch-uninstall`.
+
+Es el primer compilador de este repo que resuelve una referencia real
+entre dos statements del mismo archivo: en `System.wire(to=api,
+from=db, ...)`, `api`/`db` deben ser identificadores que refieren a un
+`System.plugin(...)` asignado antes en el archivo (misma regla 1 de
+"declarar antes de usar" de la sección de semántica de arriba, pero acá
+sí se resuelve y usa, no solo se valida y descarta — ver ASTR503/ASTR504).
+
+Ejemplo completo: `examples/tutorial-system.asterion` (documentado en
+`docs/TUTORIAL.md` § 7).
+
+| Verbo | Cardinalidad | Descripción |
+|---|---|---|
+| `System.plugin(route, ref?, requires?, principal?)` | repetible, asignado a una variable (`nombre = System.plugin(...)`) | Declara un plugin del sistema. `route`: carpeta local o URL de git (heurística de `asterion-core`, no de este compilador). `ref`: branch/tag/commit (vacío = HEAD del default). `requires`: lista de strings — toolchains que el plugin necesita antes de compilarse (`"node@<versión exacta>"` para un Node sandboxed y verificado por checksum; `"python"`/`"go"` para solo verificar que ya están en el PATH; cualquier otra cosa es rechazada explícitamente — ver `docs/TUTORIAL.md` § 7). `principal`: marca el plugin central del sistema (mismo campo `IsMain` que ya usa `asterion local tunnel start`). |
+| `System.wire(to, key, from, field?)` | repetible, statement suelto (sin asignación) | Antes de arrancar `to`, fija su config `key` a partir de un campo de `from` resuelto en runtime — nunca un valor literal. `to`/`from`: referencias (`Ident`) a plugins ya declarados con `System.plugin(...)` más arriba (ASTR503 si no es una referencia, ASTR504 si el nombre no fue declarado antes). `field` (default `"port"`): `"port"` usa la URL real donde `from` terminó escuchando; `"env:<clave>"` copia una config YA GUARDADA de `from` (falla en runtime, no acá, si `from` no la tiene configurada). |
+
+Todos los argumentos van nombrados, igual que en `Contract.*`. Los
+mensajes de runtime (arrancar cada plugin, resolver cada wire) no son
+responsabilidad de este compilador — `systemspec.Compile` solo produce
+`[]PluginDecl`/`[]WireDecl`; instalar, compilar, arrancar y conectar de
+verdad vive en `asterion-core` (`cmd/asterion/plugin_system.go`).

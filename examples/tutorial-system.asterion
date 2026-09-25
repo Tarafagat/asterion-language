@@ -1,0 +1,46 @@
+language "0.1"
+
+# Ejemplo para el tutorial (ver docs/TUTORIAL.md § "Sistema de plugins
+# interconectados") — dos plugins de juguete, uno "principal" (db) y otro
+# que se conecta a él (api), para mostrar System.plugin/System.wire. Para
+# instalarlos de verdad hacen falta dos carpetas con un plugin.yaml cada
+# una en ./tutorial-db-plugin y ./tutorial-web-plugin (ver el tutorial
+# para el contenido mínimo de cada una) — este archivo, solo, ya es
+# sintaxis válida (probalo con
+# 'go run ./cmd/asterion-language check examples/tutorial-system.asterion').
+#
+# Aplicar de verdad (instala, conecta el wiring, arranca todo, en el
+# orden en que aparece acá abajo):
+#   asterion plugin system apply examples/tutorial-system.asterion
+#
+# Empaquetar el sistema entero en carpetas portables, listas para correr
+# fuera de Asterion (una por plugin, más un .env combinado de referencia):
+#   asterion plugin system export examples/tutorial-system.asterion
+
+db = System.plugin(
+    route="./tutorial-db-plugin",
+    principal=true,
+)
+
+api = System.plugin(
+    route="./tutorial-web-plugin",
+    # api tiene un frontend propio (frontend/package.json) — requires le
+    # pide a Asterion un Node sandboxed en la versión exacta declarada
+    # (nunca "la LTS actual": eso se pudre con el tiempo) antes de
+    # compilarlo. Se descarga UNA vez, verificado contra el checksum
+    # oficial de nodejs.org, y se cachea — nunca toca un Node que ya
+    # tengas instalado en el sistema. pnpm no se declara aparte: viene
+    # con Node vía Corepack.
+    requires=["node@20.11.0"],
+)
+
+# api recibe, en su propia config (ASTERION_PLUGIN_CONFIG_DATABASE_URL),
+# la dirección REAL de db una vez que está corriendo — nunca un valor
+# inventado ni tipeado a mano acá.
+System.wire(to=api, key="DATABASE_URL", from=db)
+
+# Un segundo wire, esta vez copiando una config YA GUARDADA de db (no su
+# puerto) — el nombre de la clave viaja acá, el VALOR nunca: sigue
+# viviendo únicamente en la config cifrada de db ('asterion plugin config
+# set tutorial-db-plugin database_name=...').
+System.wire(to=api, key="DB_NAME", from=db, field="env:database_name")

@@ -117,7 +117,9 @@ func (c *compiler) dispatch(verb string, cc *call, callExpr *ast.CallExpr) {
 		c.onceGuard(verb, &c.languageSet, cc)
 		name, _ := cc.str("name", true)
 		version, _ := cc.str("version", false)
-		c.manifest.Language = &apc.LanguageSpec{Name: name, Version: version}
+		venv, _ := cc.str("venv", false)
+		requirements, _ := cc.str("requirements", false)
+		c.manifest.Language = &apc.LanguageSpec{Name: name, Version: version, Venv: venv, Requirements: requirements}
 
 	case "start":
 		c.onceGuard(verb, &c.startSet, cc)
