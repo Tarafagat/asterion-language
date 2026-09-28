@@ -82,6 +82,8 @@ primary        := IDENT | STRING | INT | FLOAT | SIZE | DURATION
    `systemspec.Compile`, que nunca corre `semantic.Analyzer`), igual que
    `Contract.*` más abajo. Ver la sección "DSL de sistema de plugins"
    para sus propias reglas.
+7. **`AGCA.*`** — mismo criterio que `System.*`: DSL separado, su propio
+   compilador (`agcaspec.Compile`). Ver "DSL de inteligencia cognitiva".
 
 ## Códigos de diagnóstico
 
@@ -114,6 +116,19 @@ primary        := IDENT | STRING | INT | FLOAT | SIZE | DURATION
 | ASTR502 | systemspec | un argumento tiene el tipo equivocado (se esperaba string/booleano/lista) |
 | ASTR503 | systemspec | `to`/`from` de `System.wire` no es una referencia (`Ident`) a un plugin |
 | ASTR504 | systemspec | `to`/`from` referencia un nombre que no fue declarado con `System.plugin(...)` antes de esa línea |
+| ASTR600 | agcaspec | un nombre de variable (`x = AGCA.<verbo>(...)`) ya fue declarado antes en el archivo |
+| ASTR601 | agcaspec | falta un argumento obligatorio en una llamada `AGCA.*` |
+| ASTR602 | agcaspec | un argumento tiene el tipo equivocado (ej. se esperaba una lista o un booleano) |
+| ASTR603 | agcaspec | un argumento de referencia (ej. `intelligence=`) no es un `Ident` |
+| ASTR604 | agcaspec | una referencia apunta a un nombre que no fue declarado antes de esa línea |
+| ASTR605 | agcaspec | `AGCA.<verbo>` no existe |
+| ASTR606 | agcaspec | un valor puntual es inválido para ese campo (ej. `runtime`+`adapter` a la vez, `instances` no positivo) |
+| ASTR607 | agcaspec | un valor de tipo enum (ej. `privacy`) no está en el conjunto válido |
+| ASTR608 | agcaspec | una referencia resuelve a un nombre real, pero declarado con el verbo (o `Import`) equivocado |
+| ASTR609 | agcaspec | `AGCA.secret`: declaró `source` y `from`/`field` a la vez, o ninguno de los dos |
+| ASTR611 | agcaspec | `Import(path=...)`: el archivo referenciado no existe, no parsea, o no compila como sistema de plugins |
+| ASTR612 | agcaspec | una referencia `from=` no tiene la forma `<import>.<plugin>` |
+| ASTR613 | agcaspec | `from=<import>.<plugin>`: ese `Import(...)` no declaró un plugin de ese nombre |
 
 ## DSL de manifiesto de plugin (`Contract.*`)
 
@@ -196,3 +211,100 @@ mensajes de runtime (arrancar cada plugin, resolver cada wire) no son
 responsabilidad de este compilador — `systemspec.Compile` solo produce
 `[]PluginDecl`/`[]WireDecl`; instalar, compilar, arrancar y conectar de
 verdad vive en `asterion-core` (`cmd/asterion/plugin_system.go`).
+
+## DSL de inteligencia cognitiva (`AGCA.*`)
+
+Un cuarto uso de la misma gramática: en vez de infraestructura, un
+manifiesto de plugin o un sistema de plugins, un archivo de este tipo
+declara una **Intelligence** de Asterion Graph Cognitive Architecture
+(AGCA) — un Cognitive Graph, neuronas intercambiables, agentes/swarms,
+qué capabilities de Asterion Plugins necesita, memoria, políticas y
+bots. Ver la propuesta de investigación completa ("Camino a la AGI") y
+el repo hermano
+[`asterion-graph-cognitive-architecture`](https://github.com/Tarafagat/asterion-graph-cognitive-architecture),
+que consume este DSL para construir y correr la Intelligence de verdad
+(`asterion graph validate|inspect|run|bot run`, en `asterion-core`).
+
+Compila con `agcaspec.Compile` (`asterion-language/agcaspec`) — otro
+walker propio, tampoco pasa por `semantic.Analyzer`/`systemspec`/
+`pluginmanifest`.
+
+**Por qué esta sintaxis y no bloques con llaves.** El documento de
+investigación original propone una sintaxis de bloques anidados
+(`intelligence Vision { graph VisualWorld { hierarchical = true } }`) —
+Asterion Language no tiene llaves ni bloques anónimos (ver § Léxico más
+arriba). `AGCA.*` expresa la misma idea con el estilo que ya usan
+`Contract.*`/`System.*`: una secuencia de llamadas
+`AGCA.<verbo>(clave=valor, ...)`, cada una asignada a una variable que
+los verbos siguientes referencian con `intelligence=<esa variable>`
+— es el segundo compilador de este repo (después de `systemspec`) que
+resuelve referencias reales entre variables, con el agregado de validar
+el KIND de cada referencia (`AGCA.agent(intelligence=miGrafo, ...)` es
+ASTR608: `miGrafo` existe, pero es un `AGCA.graph(...)`, no una
+`AGCA.intelligence(...)`).
+
+Ejemplo completo: `examples/agca-company.asterion` (incluye un bot).
+
+| Verbo | Cardinalidad | Descripción |
+|---|---|---|
+| `AGCA.intelligence(name)` | repetible, asignado a una variable | Declara una Intelligence — el ancla de agrupación a la que cuelgan todos los verbos siguientes vía `intelligence=<ref>`. |
+| `AGCA.graph(intelligence, name?, hierarchical?, persistent?, temporal?, provenance?)` | repetible, asignado a una variable | El Cognitive Graph de esa Intelligence. Los cuatro flags son booleanos (default `false`) que describen qué propiedades mantiene el runtime — este compilador solo los traduce a datos. |
+| `AGCA.neuron(intelligence, name, runtime?, adapter?, model?, capabilities?, privacy?)` | repetible, asignado a una variable | Una neurona intercambiable. `runtime` (ej. `"gguf"`) es para ejecución local, `adapter` (ej. `"remote-llm"`) para un proveedor remoto — mutuamente excluyentes (ASTR606 si se declaran los dos). `model` acepta `"env:VAR"` para leerlo de una variable de entorno en runtime (mismo convenio que `System.wire(field="env:...")`). `privacy` es `"local"` o `"remote"` (ASTR607 si es otra cosa, default `"local"`). |
+| `AGCA.swarm(intelligence, name, instances)` | repetible, asignado a una variable | `instances`: un entero positivo, o el string `"adaptive"` (ASTR606 si es 0, negativo, o un string que no sea `"adaptive"`). |
+| `AGCA.agent(intelligence, name, strategy?)` | repetible, asignado a una variable | Un agente ejecutivo o especializado. `strategy` es un string libre (ej. `"adaptive"`, `"evidence"`) — sin validación cerrada. |
+| `AGCA.requires_capability(intelligence, capability)` | repetible, statement suelto (sin asignación) | Declara que la Intelligence necesita una capability de Asterion Plugins (ej. `"database.query"`) — nunca el nombre de un plugin puntual: qué plugin instalado la satisface se resuelve en runtime (Capability Router), no acá. |
+| `AGCA.memory(intelligence, name, type?, graph)` | repetible, asignado a una variable | `graph`: referencia a un `AGCA.graph(...)` ya declarado de la MISMA Intelligence (ASTR608 si es de otra clase de verbo). `type` es un string libre (ej. `"hybrid"`). |
+| `AGCA.policy(intelligence, name, when?, allow?, deny?, prefer?, unless?)` | repetible, asignado a una variable | Declarativo puro: `when`/`allow`/`deny`/`prefer`/`unless` son expresiones en TEXTO PLANO (ej. `"privacy==local"`), nunca evaluadas por este compilador — evaluarlas de verdad es trabajo futuro de un Policy Engine en el runtime. |
+| `AGCA.bot(intelligence, name, interface, permissions?)` | repetible, asignado a una variable | Una interfaz (nunca una inteligencia aparte) hacia la Intelligence — `interface` ej. `"terminal"`, `"web"`, `"api"`. `permissions`: lista de capabilities que ESTE bot puntual puede invocar. |
+| `AGCA.secret(name, source?, from?, field?, allow?)` | repetible, asignado a una variable | Una REFERENCIA a un secreto — nunca el valor real (que se sigue incorporando por el canal seguro de siempre, ej. `asterion secret set`). Dos formas MUTUAMENTE EXCLUYENTES (ASTR609 si se declaran las dos, o ninguna): `source` (literal, la ruta/clave dentro del gestor de secretos — para un secreto que no pertenece a ningún plugin importado, ej. una credencial de la empresa) **o** `from`+`field` (declara la intención de usar un secreto de un plugin importado con route TODAVÍA no resoluble localmente — ver más abajo). `allow`: lista de plugins autorizados a recibirlo inyectado — deny-by-default, vacía significa "ninguno todavía". **Si el plugin de `Import(...)` YA es resoluble localmente, sus campos `secret: true` se descubren solos — declarar acá un `AGCA.secret(from=, field=)` para uno de ellos es una doble declaración innecesaria, ver "Uniendo `AGCA.*` con `System.*`" más abajo.** |
+| `Import(path)` | repetible, asignado a una variable — **builtin de llamada desnuda, no bajo `AGCA.*`** | Trae los nombres de plugin que OTRO archivo `.asterion` declaró con `System.plugin(...)` (se lee, parsea y compila con `systemspec.Compile` — nunca copia su `System.wire(...)`), para poder referenciarlos como `<var>.<plugin>` desde este archivo — ver `AGCA.secret(from=, field=)` arriba. `path` se resuelve relativo al directorio del propio archivo (nunca al cwd de quien corre el comando). ASTR611 si el archivo no existe, no parsea, o no compila como sistema de plugins. |
+
+Todos los argumentos van nombrados, igual que en `Contract.*`/`System.*`
+— incluido `Import(path="...")`, a propósito: aunque es un builtin de
+una sola llamada (más parecido a `Network(cidr=...)` que a un verbo con
+namespace), este DSL nunca usa argumentos posicionales en ningún otro
+lado, y `Import` no es una excepción.
+
+**Uniendo `AGCA.*` con `System.*`: capabilities Y secretos de un plugin
+importado se DESCUBREN solos, sin declarar nada más.** Un `Import(...)`
+con route LOCAL (una carpeta que ya existe en disco) hace que
+`asterion-graph-cognitive-architecture` lea el `plugin.yaml` real de
+cada plugin y derive de ahí sus capabilities (`resources[].crud` +
+`actions[]`) y qué campos de su `config_schema` son `secret: true` — ver
+`runtime.discoverImportedPlugins` y `asterion graph inspect`, que
+reporta ambos bajo "Capabilities descubiertas"/"Secretos descubiertos".
+**Escribir un `AGCA.secret(from=<plugin>, field=...)` para repetir un
+secreto que el plugin YA declaró como tal en su propio manifiesto es una
+doble declaración innecesaria** — el descubrimiento automático ya lo
+sabe, sin que este archivo tenga que decirlo de nuevo.
+
+`from=`/`field=` en `AGCA.secret(...)` sigue teniendo un uso real, para
+el caso de borde en que el descubrimiento automático TODAVÍA no puede
+resolver el plugin (ej. una route de git sin clonar todavía) pero igual
+querés declarar, con anticipación, que esta Intelligence va a necesitar
+uno de sus secretos:
+
+```python
+sys = Import(path="./system.asterion")   # api tiene route="git://..." — no clonada, no resoluble localmente todavía
+
+# 'asterion graph inspect' reporta sys.api como "no resuelto" (route no
+# es una carpeta local) — no hay descubrimiento automático posible
+# todavía. Declarar la intención con anticipación igual compila:
+api_key_ref = AGCA.secret(name="ApiKeyRef", from=sys.api, field="config:api_key")
+```
+
+`from=sys.api` es un `AttrExpr` (`<import>.<plugin>`) — `sys` debe ser un
+`Import(...)` ya declarado (ASTR612 si no tiene esa forma, ASTR604 si
+`sys` no existe, ASTR608 si existe pero no es un `Import`, ASTR613 si
+`sys` existe pero no trajo un plugin llamado `api`). Esta declaración
+NO se valida contra el `config_schema` real de `api` (no hay uno que leer
+todavía) — es responsabilidad del autor que, cuando `api` sí se resuelva,
+el campo `field=` siga existiendo.
+
+`agcaspec.Compile(prog, baseDir)` solo produce un `*agcaspec.Spec`
+(todas las declaraciones, en el orden del archivo, con `Import(...)`
+resuelto contra `baseDir`) — construir la Intelligence de verdad
+(Cognitive Graph, Neuron Registry, Agent Scheduler, Capability
+Registry) y correr un ciclo cognitivo vive en
+`asterion-graph-cognitive-architecture`, consumido desde `asterion-core`
+(`cmd/asterion/graph.go`).

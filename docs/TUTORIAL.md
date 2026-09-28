@@ -6,15 +6,17 @@ Todo lo que sigue está corrido de verdad contra este mismo compilador
 acá a un archivo y corrés el comando de al lado, te tiene que dar
 exactamente esto mismo.
 
-## 0. Dos lenguajes DSL, un solo compilador
+## 0. Cuatro lenguajes DSL, un solo compilador
 
-Asterion Language sirve para dos cosas distintas, y es importante no
+Asterion Language sirve para cuatro cosas distintas, y es importante no
 mezclarlas:
 
 | | Describe... | Se valida con | Verbo raíz |
 |---|---|---|---|
 | **DSL de infraestructura** | qué instancias/redes querés que tenga tu infraestructura, para que Asterion Core lo ejecute | `semantic.Analyzer` → `asterion-language check` / `asterion language check` | `Provider.*`, `Lab.*`, `Network(...)` |
 | **DSL de manifiesto de plugin** | el contrato de un plugin nuevo (nombre, config, permisos, endpoints), para compilarlo a un `plugin.yaml` | `pluginmanifest.Compile` → `asterion plugin from-asterion` | `Contract.*` |
+| **DSL de sistema de plugins** | varios plugins ya instalables, cómo se conectan entre sí (wiring) y qué toolchains necesitan | `systemspec.Compile` → `asterion plugin system apply/export/watch` | `System.*` |
+| **DSL de inteligencia cognitiva** | una Intelligence de AGCA (Cognitive Graph, neuronas, agentes, capabilities de plugin, memoria, políticas, bots) | `agcaspec.Compile` → `asterion graph validate/inspect/run/bot run` | `AGCA.*`, `Import(...)` |
 
 Comparten el mismo lexer y el mismo parser (mismos tokens, misma
 indentación, misma gramática de expresiones) — lo que cambia es qué
@@ -23,7 +25,14 @@ archivo `.asterion` que usa `Provider.*` nunca pasa por `pluginmanifest`, y uno
 que usa `Contract.*` nunca pasa por `semantic.Analyzer` — por eso más
 abajo vas a ver que `asterion-language check` rechaza un archivo
 `Contract.*` (con `ASTR202`, "no está definido") — es el comportamiento
-esperado, no un bug: `check` es para el otro DSL.
+esperado, no un bug: `check` es para el DSL de infraestructura (y, en
+menor medida, valida declarar-antes-de-usar para `System.*`/`AGCA.*`
+también, ver § 7-8 — pero nunca para `Contract.*`).
+
+`Import(...)` es la única excepción a "cada DSL vive en su propio
+archivo": deja que un archivo `AGCA.*` traiga plugins ya declarados en
+un archivo `System.*` distinto (§ 8) — el único punto de contacto real
+entre dos de estos cuatro DSL.
 
 ## 1. La sintaxis: por qué se parece a Python
 
@@ -433,12 +442,241 @@ puerto de la corrida de desarrollo. Y el frontend NUNCA ve ese archivo:
 — así un secreto real no tiene ninguna forma de terminar en el bundle
 público que un navegador descarga.
 
-## 8. Dónde seguir
+## 8. Ejemplo en vivo — inteligencia cognitiva (`AGCA.*`)
+
+Un cuarto uso del mismo lenguaje, separado de los tres de arriba: en vez
+de infraestructura, un manifiesto de plugin o un sistema de plugins,
+declarar una **Intelligence** de [Asterion Graph Cognitive Architecture
+(AGCA)](https://github.com/Tarafagat/asterion-graph-cognitive-architecture)
+— un Cognitive Graph, neuronas intercambiables, agentes/swarms, qué
+capabilities de Asterion Plugins necesita, memoria, políticas y bots. Se
+compila con `agcaspec.Compile` (otro walker propio, mismo criterio que
+`systemspec`/`pluginmanifest`) y se usa con `asterion graph
+validate/inspect/run/bot run` (`asterion-core`).
+
+`examples/agca-company.asterion` (versión resumida — el archivo real
+también declara `Finance`/`Support`/`Critic` y una segunda neurona
+local; ver el repo para el contenido completo):
+
+```python
+language "0.1"
+
+# Une esta inteligencia con un sistema de plugins YA declarado en otro
+# archivo (ver § 7) — sys.db/sys.api quedan disponibles para referenciar.
+sys = Import(path="./tutorial-system.asterion")
+
+brain = AGCA.intelligence(name="CompanyBrain")
+
+world = AGCA.graph(intelligence=brain, name="CompanyWorld", hierarchical=true, persistent=true, temporal=true, provenance=true)
+
+local_fast = AGCA.neuron(intelligence=brain, name="LocalFast", runtime="gguf", capabilities=["classification", "extraction"], privacy="local")
+remote_deep_reasoner = AGCA.neuron(intelligence=brain, name="RemoteDeepReasoner", adapter="remote-llm", model="env:DEEP_MODEL", capabilities=["reasoning", "planning", "critic"], privacy="remote")
+
+operations = AGCA.swarm(intelligence=brain, name="Operations", instances="adaptive")
+executive = AGCA.agent(intelligence=brain, name="Executive", strategy="adaptive")
+
+AGCA.requires_capability(intelligence=brain, capability="database.query")
+AGCA.requires_capability(intelligence=brain, capability="inventory.read")
+
+memory = AGCA.memory(intelligence=brain, name="LongTerm", type="hybrid", graph=world)
+
+admin_bot = AGCA.bot(
+    intelligence=brain,
+    name="AdminAssistant",
+    interface="terminal",
+    permissions=["inventory.read", "mail.read", "repository.read"],
+)
+
+# "database_password" es un secreto de la EMPRESA (una cuenta de
+# MercadoPago compartida) — no pertenece a ningún plugin importado, así
+# que declararlo a mano acá no es redundante con nada.
+db_password = AGCA.secret(name="DatabasePassword", source="mycompany/prod/database_password")
+```
+
+**Por qué esta sintaxis y no bloques con llaves.** El documento de
+investigación original ("Camino a la AGI") propone `intelligence X {
+graph Y { hierarchical = true } }` — Asterion Language no tiene llaves
+(§ 1 de este tutorial: los únicos símbolos son `( ) [ ] , . = : ?`).
+`AGCA.*` expresa la misma idea con el estilo que ya usan
+`Contract.*`/`System.*`: cada verbo es una llamada asignada a una
+variable, referenciada después con `intelligence=<esa variable>` — la
+misma resolución de referencias reales que `System.wire`, con un
+agregado: `agcaspec` valida el KIND de cada referencia (pasar el nombre
+de un `AGCA.graph(...)` donde se espera un `AGCA.intelligence(...)` es
+un error, no una coincidencia de nombre que se acepta sin más).
+
+`Import(path=...)` es el punto de unión con `System.*`: lee, parsea y
+compila (con `systemspec.Compile`, el mismo compilador de § 7) el
+archivo referenciado, y expone sus plugins como `<var>.<plugin>` — es un
+builtin de llamada desnuda (como `Network(cidr=...)`), no un verbo
+`AGCA.*`, porque no le pertenece más a este DSL que a `System.*`. Con
+una route LOCAL (una carpeta que ya existe en disco),
+`asterion-graph-cognitive-architecture` va un paso más allá: lee el
+`plugin.yaml` real de ese plugin y DESCUBRE SOLO sus capabilities
+(`resources[].crud` + `actions[]`) y cuáles de sus campos de config son
+`secret: true` — sin que este archivo tenga que declarar nada más (ver
+`asterion graph inspect` más abajo). `AGCA.secret(from=, field=)`
+(mismo prefijo `"config:"` que ya usa `System.wire.field` con
+`"env:"`) sigue disponible para el caso de borde en que el plugin
+TODAVÍA no es resoluble localmente (route de git sin clonar) — usarlo
+para repetir un secreto que un plugin YA resoluble ya declaró sería una
+doble declaración sin ninguna información nueva.
+
+Compilar de verdad:
+
+```
+$ go run ./cmd/asterion-language check examples/agca-company.asterion
+✓ examples/agca-company.asterion — 19 statement(s), sin errores (contract_version: 0.1)
+```
+
+Construir la Intelligence completa e inspeccionarla — sin correr ningún
+ciclo cognitivo todavía:
+
+```
+$ asterion graph inspect examples/agca-company.asterion
+Intelligence: CompanyBrain
+Graph: CompanyWorld (0 nodo(s))
+Neuronas:
+  - LocalFast [gguf] privacy=local capabilities=[classification extraction] — fuera de servicio
+  - LocalReasoner [gguf] privacy=local capabilities=[reasoning code] — fuera de servicio
+  - RemoteDeepReasoner [remote-llm] privacy=remote capabilities=[reasoning planning critic] — fuera de servicio
+  - runtime.DeterministicClassifier [deterministic] privacy=local capabilities=[classification] — disponible
+Swarms:
+  - Operations (instances=adaptive)
+  - Finance (instances=adaptive)
+  - Support (instances=adaptive)
+Agentes:
+  - Executive (strategy=adaptive)
+  - Critic (strategy=evidence)
+Capabilities de plugin requeridas:
+  - database.query
+  - inventory.read
+  - mail.read
+  - repository.read
+Bots:
+  - AdminAssistant (interface=terminal)
+Imports:
+  - sys <- ./tutorial-system.asterion (plugins: [db api])
+Secrets:
+  - DatabasePassword (source=mycompany/prod/database_password)
+Capabilities descubiertas (de plugins importados):
+  - sys.db: no resuelto (route "./tutorial-db-plugin" no es una carpeta local (¿todavía no se clonó? Import no clona git, solo lee plugin.yaml ya presente en disco))
+  - sys.api: no resuelto (route "./tutorial-web-plugin" no es una carpeta local (¿todavía no se clonó? Import no clona git, solo lee plugin.yaml ya presente en disco))
+```
+
+`Import` trajo de verdad los dos plugins que `tutorial-system.asterion`
+declaró (`db`/`api`, § 7) — leyó y compiló ESE archivo en disco, no una
+copia ni un resumen. Acá aparecen como "no resuelto" porque
+`tutorial-db-plugin`/`tutorial-web-plugin` son las carpetas de juguete
+del § 7 (creadas a mano solo quien sigue ese tutorial al pie de la
+letra, no versionadas en este repo) — sin ellas en disco, no hay ningún
+`plugin.yaml` que leer. Con las carpetas presentes (ver § 7), esta misma
+sección mostraría de verdad las capabilities de `db`/`api` y cualquier
+campo de su config marcado `secret: true` — sin que `agca-company.asterion`
+tuviera que declarar un solo `AGCA.secret(from=, field=)` para eso. Una
+corrida real con un plugin de juguete sí presente:
+
+```
+$ asterion graph inspect /tmp/demo/company.asterion
+Imports:
+  - sys <- ./system.asterion (plugins: [db])
+Capabilities descubiertas (de plugins importados):
+  - sys.db: [records.create records.read records.list]
+Secretos descubiertos (config_schema del propio plugin, sin declarar nada acá):
+  - sys.db: database_password (Contraseña de la base de datos)
+```
+
+Real, no un mock: `LocalFast`/`LocalReasoner`/`RemoteDeepReasoner` están
+`fuera de servicio` porque `asterion-graph-cognitive-architecture` no
+trae todavía un backend GGUF ni un adapter remoto de verdad — se
+compilan, se registran y se listan tal cual el `.asterion` las declaró,
+pero invocarlas fallaría honestamente (`ErrNotImplemented`) en vez de
+inventar una respuesta. `runtime.DeterministicClassifier` es la única
+neurona que el runtime siempre trae — una clasificación real por
+keywords, no un LLM — así todo archivo AGCA tiene al menos una neurona
+invocable de punta a punta.
+
+Correr un ciclo cognitivo completo (perceive → elegir neurona → merge en
+el grafo → registrar experiencia):
+
+```
+$ asterion graph run examples/agca-company.asterion --goal "necesito consultar el inventario de productos"
+✓ neurona usada: runtime.DeterministicClassifier
+  output: read
+  grafo: observación trace-1790542950434331000-1:observation -> insight trace-1790542950434331000-1:insight (trace trace-1790542950434331000-1)
+```
+
+Pedir una capability que solo declaran las neuronas fuera de servicio da
+un error honesto, no un resultado inventado:
+
+```
+$ asterion graph run examples/agca-company.asterion --goal "explicar por qué" --capability reasoning
+Error: ninguna neurona registrada declara la capacidad "reasoning"
+```
+
+El bot: una **interfaz** hacia `CompanyBrain`, nunca una inteligencia
+aparte (§ 16 de "Camino a la AGI") — cada línea de la sesión es un goal
+nuevo, corrido contra el mismo ciclo cognitivo de `graph run`:
+
+```
+$ asterion graph bot run examples/agca-company.asterion --bot admin_bot
+Bot "AdminAssistant" (interface=terminal) — escribí un goal por línea, Ctrl+D o 'exit' para salir.
+> necesito consultar el inventario
+read
+> quiero crear un producto nuevo
+write
+> exit
+```
+
+Dos errores reales de `Import`/`AGCA.secret(from=, field=)`, ambos
+detectados al COMPILAR (nunca en runtime):
+
+```
+$ echo 'language "0.1"
+sys = Import(path="./nonexistent-file.asterion")' > /tmp/bad.asterion
+$ asterion graph validate /tmp/bad.asterion
+Error: /tmp/bad.asterion no se pudo compilar a una inteligencia AGCA:
+ERROR ASTR611: Import(path="./nonexistent-file.asterion"): no pude leer /tmp/nonexistent-file.asterion: open /tmp/nonexistent-file.asterion: no such file or directory
+  --> /tmp/bad.asterion:2:13
+```
+
+```
+$ echo 'language "0.1"
+sys = Import(path="./tutorial-system.asterion")
+bad = AGCA.secret(name="X", from=sys.nonexistent_plugin, field="config:x")' > examples/agca-bad-secret.asterion
+$ asterion graph validate examples/agca-bad-secret.asterion
+Error: examples/agca-bad-secret.asterion no se pudo compilar a una inteligencia AGCA:
+ERROR ASTR613: AGCA.secret: "sys" no declaró ningún plugin "nonexistent_plugin" — declarados: [db api]
+  --> examples/agca-bad-secret.asterion:3:37
+```
+
+Ver `spec/grammar.md` § "DSL de inteligencia cognitiva" por la tabla
+completa de verbos y los códigos `ASTR600`-`ASTR613`, y el README de
+[`asterion-graph-cognitive-architecture`](https://github.com/Tarafagat/asterion-graph-cognitive-architecture)
+por qué subsistemas son reales hoy (Cognitive Graph, Neuron Registry,
+Agent Scheduler, ciclo cognitivo) y cuáles quedan para las próximas
+fases del roadmap (backend GGUF/remoto real, Executive Agent que infiera
+capabilities del lenguaje natural, Capability Registry conectado a
+Asterion Plugins de verdad, Policy Engine que evalúe las políticas
+declaradas).
+
+## 9. Dónde seguir
 
 - `README.md` — panorama general, estado real del proyecto, qué falta.
-- `spec/grammar.md` — gramática completa (léxico + EBNF) y la tabla
-  completa de verbos `Contract.*` con su cardinalidad y sus campos.
+- `spec/grammar.md` — gramática completa (léxico + EBNF) y las tablas
+  completas de verbos de los cuatro DSL (`Contract.*`/`System.*`/`AGCA.*`,
+  más infraestructura) con su cardinalidad, sus campos y sus códigos
+  `ASTRnnn`.
 - `examples/` — todos los `.asterion` de este tutorial (y más) corren como
   golden tests reales del compilador, no son solo ilustrativos.
-- `pluginmanifest/compile_test.go` y `semantic/golden_test.go` — si
-  querés ver exactamente qué casos ya están cubiertos por tests.
+- `semantic/analyzer_test.go`/`semantic/golden_test.go`,
+  `pluginmanifest/compile_test.go`, `systemspec/compile_test.go`,
+  `agcaspec/compile_test.go` — si querés ver exactamente qué casos ya
+  están cubiertos por tests, DSL por DSL.
+- [`asterion-graph-cognitive-architecture`](https://github.com/Tarafagat/asterion-graph-cognitive-architecture)
+  — el repo hermano que construye y CORRE de verdad una Intelligence
+  `AGCA.*` (Cognitive Graph, Neuron Registry, Agent Scheduler, ciclo
+  cognitivo), consumido desde `asterion-core` como `asterion graph
+  validate/inspect/run/bot run`. Su README trae el estado real,
+  milestone por milestone, de los 16 pasos del roadmap del paper
+  "Camino a la AGI".

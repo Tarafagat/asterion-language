@@ -1,0 +1,135 @@
+language "0.1"
+
+# Ejemplo para docs/TUTORIAL.md § 8 ("Inteligencia cognitiva — AGCA") —
+# adaptación de company.asterion (Apéndice B de "Camino a la AGI: Asterion
+# Graph Cognitive Architecture") a la gramática REAL de Asterion Language:
+# el documento de investigación original propone una sintaxis de bloques
+# con llaves ("intelligence X { graph Y { ... } }") que este lenguaje no
+# tiene — acá la misma idea se expresa con AGCA.<verbo>(clave=valor, ...),
+# el mismo estilo que ya usan Contract.*/System.*. Este archivo, solo, ya
+# es sintaxis válida (probalo con
+# 'go run ./cmd/asterion-language check examples/agca-company.asterion').
+#
+# AGCA describe la INTELIGENCIA (grafo cognitivo, neuronas, agentes,
+# capabilities, memoria, políticas, bots) — nunca reemplaza a System.*
+# (que instala/conecta los PLUGINS reales que esa inteligencia va a
+# invocar). Import(path=...) es lo que UNE ambos mundos: en vez de
+# repetir a mano qué plugins existen y cómo se conectan, este archivo
+# IMPORTA el sistema real ya declarado en examples/tutorial-system.asterion
+# (dos plugins de juguete, "db" y "api", ver ese archivo) — sus nombres
+# quedan disponibles acá como sys.db/sys.api.
+
+sys = Import(path="./tutorial-system.asterion")
+
+brain = AGCA.intelligence(name="CompanyBrain")
+
+# El Cognitive Graph de esta inteligencia — jerárquico, persistente entre
+# corridas, con línea de tiempo y procedencia (quién escribió cada nodo,
+# desde qué fuente, con qué confianza).
+world = AGCA.graph(
+    intelligence=brain,
+    name="CompanyWorld",
+    hierarchical=true,
+    persistent=true,
+    temporal=true,
+    provenance=true,
+)
+
+# Dos neuronas locales (nunca salen de esta máquina — privacy=local) y
+# una remota, bajo el mismo contrato: el runtime las trata igual salvo por
+# dónde corren y qué tan sensible es el dato que pueden ver (ver policy
+# ConfidentialRouting más abajo).
+local_fast = AGCA.neuron(
+    intelligence=brain,
+    name="LocalFast",
+    runtime="gguf",
+    model="./models/local-fast.gguf",
+    capabilities=["classification", "extraction"],
+    privacy="local",
+)
+
+local_reasoner = AGCA.neuron(
+    intelligence=brain,
+    name="LocalReasoner",
+    runtime="gguf",
+    model="./models/local-reasoner.gguf",
+    capabilities=["reasoning", "code"],
+    privacy="local",
+)
+
+# model="env:DEEP_MODEL" — mismo convenio que System.wire(field="env:...")
+# en systemspec: se resuelve leyendo la variable de entorno DEEP_MODEL en
+# runtime, nunca un valor tipeado a mano acá.
+remote_deep_reasoner = AGCA.neuron(
+    intelligence=brain,
+    name="RemoteDeepReasoner",
+    adapter="remote-llm",
+    model="env:DEEP_MODEL",
+    capabilities=["reasoning", "planning", "critic"],
+    privacy="remote",
+)
+
+# Tres swarms de agentes especializados. "adaptive" le pide al scheduler
+# que active instancias bajo demanda (nunca un número fijo de procesos
+# permanentes) — ver internal/agents/scheduler en el runtime.
+operations = AGCA.swarm(intelligence=brain, name="Operations", instances="adaptive")
+finance = AGCA.swarm(intelligence=brain, name="Finance", instances="adaptive")
+support = AGCA.swarm(intelligence=brain, name="Support", instances="adaptive")
+
+executive = AGCA.agent(intelligence=brain, name="Executive", strategy="adaptive")
+critic = AGCA.agent(intelligence=brain, name="Critic", strategy="evidence")
+
+# Qué capabilities de Asterion Plugins necesita esta inteligencia — nunca
+# el nombre de un plugin puntual: el Capability Router (runtime) resuelve
+# cuál plugin instalado satisface cada una.
+AGCA.requires_capability(intelligence=brain, capability="database.query")
+AGCA.requires_capability(intelligence=brain, capability="inventory.read")
+AGCA.requires_capability(intelligence=brain, capability="mail.read")
+AGCA.requires_capability(intelligence=brain, capability="repository.read")
+
+memory = AGCA.memory(intelligence=brain, name="LongTerm", type="hybrid", graph=world)
+
+# Dato confidencial => solo neuronas locales. Nunca se evalúa acá (este
+# compilador solo lo traduce a datos) — el Policy Engine del runtime es
+# quien la aplica de verdad antes de cada ejecución.
+confidential_routing = AGCA.policy(
+    intelligence=brain,
+    name="ConfidentialRouting",
+    when="data.sensitivity>=confidential",
+    allow="privacy==local",
+    deny="privacy==remote",
+)
+
+# El bot: una INTERFAZ hacia CompanyBrain, no una inteligencia aparte —
+# la misma brain podría, al mismo tiempo, servir un frontend web o una
+# API sin duplicar grafo ni memoria (ver docs/TUTORIAL.md § 8).
+admin_bot = AGCA.bot(
+    intelligence=brain,
+    name="AdminAssistant",
+    interface="terminal",
+    permissions=["inventory.read", "mail.read", "repository.read"],
+)
+
+# Referencia a un secreto declarada A MANO — nunca el valor real (eso se
+# sigue incorporando con 'asterion secret set DatabasePassword', un canal
+# aparte que este archivo ni ve). allow= es deny-by-default: sin listar
+# un plugin acá, ninguno lo recibe inyectado.
+#
+# Este SÍ es un caso donde declarar AGCA.secret(...) a mano tiene sentido:
+# "database_password" es un secreto de la EMPRESA (una cuenta de
+# MercadoPago compartida, nada que pertenezca al plugin "db" que
+# importamos arriba) — no hay ningún Import(...) del que derivarlo, así
+# que no hay nada redundante que evitar acá.
+#
+# Lo que NO hace falta declarar a mano: si "db" (importado arriba) ya
+# marcó algún campo de su PROPIO config_schema como secret: true (ej. su
+# propia contraseña de base de datos), 'asterion graph inspect' ya lo
+# reporta solo — ver "Secretos descubiertos" en su salida. Repetirlo acá
+# con AGCA.secret(from=sys.db, field=...) sería una doble declaración sin
+# ninguna información nueva: "db" ya sabe que ese campo es secreto, este
+# archivo no necesita decirlo de nuevo.
+db_password = AGCA.secret(
+    name="DatabasePassword",
+    source="mycompany/prod/database_password",
+    allow=["asterion-mercadopago"],
+)

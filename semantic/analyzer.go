@@ -72,6 +72,13 @@ var genericResourceTypes = map[string]bool{
 	"Storage":   true,
 	"Image":     true,
 	"Container": true,
+	// Import(path=...) — ver agcaspec/compile.go: trae los plugins que
+	// OTRO archivo .asterion declaró con System.plugin(...), para
+	// referenciarlos (ej. AGCA.secret(from=sys.db, ...)) sin copiar su
+	// contenido a mano. No pertenece más a AGCA que a System — es un
+	// mecanismo de nivel de lenguaje, del que agcaspec es hoy el único
+	// consumidor.
+	"Import": true,
 }
 
 // builtinRoots son los identificadores que el lenguaje reserva como raíz
@@ -80,14 +87,34 @@ var genericResourceTypes = map[string]bool{
 // Lab.*, Plugin.* — esta última con sintaxis todavía PLANNED, ver
 // examples/plugin.asterion — System.* — ver systemspec/compile.go, para
 // declarar un sistema de VARIOS plugins interconectados, distinto de
-// Plugin.* que es para *usar* un recurso de un plugin ya instalado) o
-// constructores de tipo genéricos.
+// Plugin.* que es para *usar* un recurso de un plugin ya instalado —
+// AGCA.* — ver agcaspec/compile.go, para declarar una inteligencia
+// cognitiva de Asterion Graph Cognitive Architecture) o constructores de
+// tipo genéricos.
 func isBuiltinRoot(name string) bool {
 	switch name {
-	case "Provider", "Lab", "Plugin", "System":
+	case "Provider", "Lab", "Plugin", "System", "AGCA":
 		return true
 	}
 	return genericResourceTypes[name]
+}
+
+// agcaResourceVerbs son los verbos AGCA.<verbo>(...) que, asignados a un
+// nombre, declaran un recurso (participan de la regla 2: nombres únicos
+// por scope) — ver agcaspec/compile.go por la lista completa y qué
+// significa cada uno. AGCA.requires_capability(...) queda afuera a
+// propósito: es una directiva suelta (nunca se asigna a un nombre), mismo
+// criterio que System.wire(...).
+var agcaResourceVerbs = map[string]bool{
+	"intelligence": true,
+	"graph":        true,
+	"neuron":       true,
+	"swarm":        true,
+	"agent":        true,
+	"memory":       true,
+	"policy":       true,
+	"bot":          true,
+	"secret":       true,
 }
 
 type Analyzer struct {
@@ -270,6 +297,16 @@ func (a *Analyzer) classify(expr ast.Expr, sc *scope) resourceKind {
 		// pluginmanifest.
 		if root, ok := outer.X.(*ast.Ident); ok && root.Name == "System" && outer.Name == "plugin" {
 			return resourceKind{Domain: "system-plugin", Detail: "plugin"}
+		}
+		// AGCA.<verbo>(...) — ver agcaspec/compile.go. Igual que
+		// System.plugin: se reconoce acá para que 'asterion language
+		// check' ya valide declarar-antes-de-usar y nombres únicos,
+		// aunque la validación específica de cada verbo (argumentos
+		// obligatorios, kind de cada referencia) vive en agcaspec, el
+		// compilador dedicado que sí se invoca al aplicar un archivo AGCA
+		// de verdad.
+		if root, ok := outer.X.(*ast.Ident); ok && root.Name == "AGCA" && agcaResourceVerbs[outer.Name] {
+			return resourceKind{Domain: "agca", Detail: outer.Name}
 		}
 	}
 	if ident, ok := call.Callee.(*ast.Ident); ok && genericResourceTypes[ident.Name] {
