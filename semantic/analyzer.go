@@ -89,11 +89,12 @@ var genericResourceTypes = map[string]bool{
 // declarar un sistema de VARIOS plugins interconectados, distinto de
 // Plugin.* que es para *usar* un recurso de un plugin ya instalado —
 // AGCA.* — ver agcaspec/compile.go, para declarar una inteligencia
-// cognitiva de Asterion Graph Cognitive Architecture) o constructores de
-// tipo genéricos.
+// cognitiva de Asterion Graph Cognitive Architecture — Tool.* — ver
+// agcaspec también, para declarar los contratos de capability que esa
+// inteligencia puede invocar) o constructores de tipo genéricos.
 func isBuiltinRoot(name string) bool {
 	switch name {
-	case "Provider", "Lab", "Plugin", "System", "AGCA":
+	case "Provider", "Lab", "Plugin", "System", "AGCA", "Tool":
 		return true
 	}
 	return genericResourceTypes[name]
@@ -111,6 +112,7 @@ var agcaResourceVerbs = map[string]bool{
 	"neuron":       true,
 	"swarm":        true,
 	"agent":        true,
+	"role":         true,
 	"memory":       true,
 	"policy":       true,
 	"bot":          true,
@@ -307,6 +309,11 @@ func (a *Analyzer) classify(expr ast.Expr, sc *scope) resourceKind {
 		// de verdad.
 		if root, ok := outer.X.(*ast.Ident); ok && root.Name == "AGCA" && agcaResourceVerbs[outer.Name] {
 			return resourceKind{Domain: "agca", Detail: outer.Name}
+		}
+		// Tool.define(...)/Tool.capability(...) — contratos de capability
+		// que una Intelligence puede seleccionar (ver agcaspec).
+		if root, ok := outer.X.(*ast.Ident); ok && root.Name == "Tool" && (outer.Name == "define" || outer.Name == "capability") {
+			return resourceKind{Domain: "tool", Detail: outer.Name}
 		}
 	}
 	if ident, ok := call.Callee.(*ast.Ident); ok && genericResourceTypes[ident.Name] {

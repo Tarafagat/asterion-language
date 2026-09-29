@@ -129,6 +129,8 @@ primary        := IDENT | STRING | INT | FLOAT | SIZE | DURATION
 | ASTR611 | agcaspec | `Import(path=...)`: el archivo referenciado no existe, no parsea, o no compila como sistema de plugins |
 | ASTR612 | agcaspec | una referencia `from=` no tiene la forma `<import>.<plugin>` |
 | ASTR613 | agcaspec | `from=<import>.<plugin>`: ese `Import(...)` no declaró un plugin de ese nombre |
+| ASTR621 | agcaspec | `Tool.<verbo>` no existe (válidos: `define`, `capability`) |
+| ASTR622 | agcaspec | una `Tool.capability(...)` declara efectos contradictorios (no-mutante y mutante a la vez) |
 
 ## DSL de manifiesto de plugin (`Contract.*`)
 
@@ -212,6 +214,46 @@ responsabilidad de este compilador — `systemspec.Compile` solo produce
 `[]PluginDecl`/`[]WireDecl`; instalar, compilar, arrancar y conectar de
 verdad vive en `asterion-core` (`cmd/asterion/plugin_system.go`).
 
+## Contratos de capability (`Tool.*`)
+
+Una **Tool** es un conjunto CERRADO de operaciones declaradas que una
+Intelligence puede invocar sobre un World. Se declara en el mismo
+archivo `.asterion` que la Intelligence, con el namespace `Tool.*`, y lo
+compila el mismo `agcaspec.Compile`.
+
+La garantía central: **AGCA solo puede seleccionar un `CapabilityID`
+declarado acá**, que el runtime resuelve contra un handler registrado de
+antemano. Nunca hay un camino desde una decisión cognitiva hacia código
+arbitrario:
+
+```text
+AGCA -> CapabilityID -> Tool Contract -> Handler predefinido -> Ejecución
+```
+
+y nunca:
+
+```text
+AGCA -> string arbitrario -> eval / exec / shell / SQL crudo
+```
+
+Una Tool de base de datos puede usar SQL por dentro; lo que AGCA conoce
+es `inventory.get_stock`, no la query. `database.raw_sql`,
+`system.shell` o `statistics.execute(...)` solo existen si alguien los
+declara EXPLÍCITAMENTE como capability — y aun así un agente puede
+tenerlos en su `deny`.
+
+| Verbo | Cardinalidad | Descripción |
+|---|---|---|
+| `Tool.define(name, category?, isolation?)` | repetible, asignado a una variable | Declara una Tool. `category` es taxonomía (ej. `"statistics"`). `isolation="sandbox"` marca una Tool que ejecuta código: sus capabilities exigen que el handler haya sido registrado como aislado, o no se ejecutan (nunca heredan los permisos del proceso host de Asterion). |
+| `Tool.capability(tool, name, description?, input?, output?, effects?, requires?, guarantees?)` | repetible, asignado a una variable | Una operación declarada de esa Tool. `tool` es una referencia a un `Tool.define(...)` (ASTR608 si apunta a otra clase de verbo). Su ID estable es `"<tool en minúsculas>.<name>"` — ej. `statistics.search_series`. `effects`: qué le puede pasar al World (`read_only`, `pure`, `mutating`, `external_write`, `destructive`, más tags libres como `"creates:Payment"`); declarar a la vez uno no-mutante y uno mutante es ASTR622. `requires`: precondiciones verificadas ANTES del handler (ej. `"network.available"`) — sin verificador registrado, una capability con requires NO se ejecuta. `guarantees`: lo que promete devolver (`"returns:series"`), y es contra eso que la Experience evalúa después si cumplió. |
+
+**Declarar no es implementar.** Un `Tool.capability(...)` produce un
+contrato visible y puntuable, pero sin handler atado (`BindHandler` en
+`asterion-graph-cognitive-architecture`) no es ejecutable: el runtime
+distingue "no existe" (`ErrUnknownCapability`) de "existe el contrato,
+falta el código" (`ErrNotImplemented`), y nunca improvisa una respuesta
+por ninguna de las dos.
+
 ## DSL de inteligencia cognitiva (`AGCA.*`)
 
 Un cuarto uso de la misma gramática: en vez de infraestructura, un
@@ -251,7 +293,8 @@ Ejemplo completo: `examples/agca-company.asterion` (incluye un bot).
 | `AGCA.graph(intelligence, name?, hierarchical?, persistent?, temporal?, provenance?)` | repetible, asignado a una variable | El Cognitive Graph de esa Intelligence. Los cuatro flags son booleanos (default `false`) que describen qué propiedades mantiene el runtime — este compilador solo los traduce a datos. |
 | `AGCA.neuron(intelligence, name, runtime?, adapter?, model?, capabilities?, privacy?)` | repetible, asignado a una variable | Una neurona intercambiable. `runtime` (ej. `"gguf"`) es para ejecución local, `adapter` (ej. `"remote-llm"`) para un proveedor remoto — mutuamente excluyentes (ASTR606 si se declaran los dos). `model` acepta `"env:VAR"` para leerlo de una variable de entorno en runtime (mismo convenio que `System.wire(field="env:...")`). `privacy` es `"local"` o `"remote"` (ASTR607 si es otra cosa, default `"local"`). |
 | `AGCA.swarm(intelligence, name, instances)` | repetible, asignado a una variable | `instances`: un entero positivo, o el string `"adaptive"` (ASTR606 si es 0, negativo, o un string que no sea `"adaptive"`). |
-| `AGCA.agent(intelligence, name, strategy?)` | repetible, asignado a una variable | Un agente ejecutivo o especializado. `strategy` es un string libre (ej. `"adaptive"`, `"evidence"`) — sin validación cerrada. |
+| `AGCA.agent(intelligence, name, strategy?, allow?, deny?, role?)` | repetible, asignado a una variable | Un agente ejecutivo o especializado. `strategy` es un string libre (ej. `"adaptive"`, `"evidence"`). `allow`/`deny` son la FRONTERA DE AUTORIDAD sobre capabilities de Tool: `deny` gana siempre sobre `allow`, y un `allow` vacío significa "ninguna capability autorizada" — deny-by-default. Que una Tool declare 20 capabilities no significa que este agente pueda usar las 20. `role` es el `AGCA.role(...)` que este agente asume por default: la autoridad efectiva es la INTERSECCIÓN de rol y agente (ninguno amplía al otro). |
+| `AGCA.role(intelligence, name, description?, allow?, deny?, inherits?, users?)` | repetible, asignado a una variable | La autoridad de QUIÉN OPERA, distinta de la del agente (quién actúa): el mismo agente, operado por un viewer o por un admin, no puede lo mismo. `inherits` es una lista de REFERENCIAS a otros roles ya declarados — heredar AMPLÍA lo permitido, pero **deny gana siempre**: si cualquier rol de la cadena deniega una capability, ningún `allow` posterior la reabre. `users` mapea identidades concretas a este rol, para que `asterion graph act --user <email>` resuelva la autoridad sin declararla a mano en cada invocación. Un rol sin `allow` no puede invocar nada. |
 | `AGCA.requires_capability(intelligence, capability)` | repetible, statement suelto (sin asignación) | Declara que la Intelligence necesita una capability de Asterion Plugins (ej. `"database.query"`) — nunca el nombre de un plugin puntual: qué plugin instalado la satisface se resuelve en runtime (Capability Router), no acá. |
 | `AGCA.memory(intelligence, name, type?, graph)` | repetible, asignado a una variable | `graph`: referencia a un `AGCA.graph(...)` ya declarado de la MISMA Intelligence (ASTR608 si es de otra clase de verbo). `type` es un string libre (ej. `"hybrid"`). |
 | `AGCA.policy(intelligence, name, when?, allow?, deny?, prefer?, unless?)` | repetible, asignado a una variable | Declarativo puro: `when`/`allow`/`deny`/`prefer`/`unless` son expresiones en TEXTO PLANO (ej. `"privacy==local"`), nunca evaluadas por este compilador — evaluarlas de verdad es trabajo futuro de un Policy Engine en el runtime. |

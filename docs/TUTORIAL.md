@@ -16,7 +16,7 @@ mezclarlas:
 | **DSL de infraestructura** | qué instancias/redes querés que tenga tu infraestructura, para que Asterion Core lo ejecute | `semantic.Analyzer` → `asterion-language check` / `asterion language check` | `Provider.*`, `Lab.*`, `Network(...)` |
 | **DSL de manifiesto de plugin** | el contrato de un plugin nuevo (nombre, config, permisos, endpoints), para compilarlo a un `plugin.yaml` | `pluginmanifest.Compile` → `asterion plugin from-asterion` | `Contract.*` |
 | **DSL de sistema de plugins** | varios plugins ya instalables, cómo se conectan entre sí (wiring) y qué toolchains necesitan | `systemspec.Compile` → `asterion plugin system apply/export/watch` | `System.*` |
-| **DSL de inteligencia cognitiva** | una Intelligence de AGCA (Cognitive Graph, neuronas, agentes, capabilities de plugin, memoria, políticas, bots) | `agcaspec.Compile` → `asterion graph validate/inspect/run/bot run` | `AGCA.*`, `Import(...)` |
+| **DSL de inteligencia cognitiva** | una Intelligence de AGCA (Cognitive Graph, neuronas, agentes, memoria, políticas, bots) y los CONTRATOS de capability que puede invocar | `agcaspec.Compile` → `asterion graph validate/inspect/run/act/bot run` | `AGCA.*`, `Tool.*`, `Import(...)` |
 
 Comparten el mismo lexer y el mismo parser (mismos tokens, misma
 indentación, misma gramática de expresiones) — lo que cambia es qué
@@ -660,13 +660,221 @@ capabilities del lenguaje natural, Capability Registry conectado a
 Asterion Plugins de verdad, Policy Engine que evalúe las políticas
 declaradas).
 
-## 9. Dónde seguir
+## 9. Ejemplo en vivo — Tools, decisiones y experiencia (`Tool.*` + `graph act`)
+
+La capa de **Experiencia** de AGCA implementa su Segundo Principio de AGI:
+
+> **AGCA aprende cuando los resultados de sus interacciones con un World
+> modifican la certeza con la que seleccionará capacidades frente a
+> estados futuros semejantes del World.**
+
+Para que eso sea posible sin volverse un ejecutor de código arbitrario,
+todo lo que AGCA puede hacer sobre un World está declarado como
+**capabilities de Tool**, con contrato:
+
+```python
+stats = Tool.define(name="Statistics", category="statistics")
+
+search_series = Tool.capability(
+    tool=stats,
+    name="search_series",
+    input=["query:String"],
+    output=["series:Dataset"],
+    effects=["read_only"],              # consultado ANTES de ejecutar
+    requires=["network.available"],     # verificado antes del handler
+    guarantees=["returns:series"],      # contra esto se evalúa después
+)
+
+inventory = Tool.define(name="Inventory", category="inventory")
+get_stock = Tool.capability(tool=inventory, name="get_stock", effects=["read_only"], guarantees=["returns:stock"])
+delete_record = Tool.capability(tool=inventory, name="delete_record", effects=["destructive"])
+
+# "Tool instalada ≠ Tool accesible": Inventory declara dos capabilities,
+# este agente solo puede usar una.
+analyst = AGCA.agent(
+    intelligence=brain,
+    name="Analyst",
+    allow=["statistics.search_series", "inventory.get_stock"],
+    deny=["inventory.delete_record", "database.raw_sql", "system.shell"],
+)
+```
+
+Ejemplo completo: `examples/agca-experience.asterion`.
+
+**Qué hace auditable a una decisión.** `asterion graph act` no ejecuta y
+listo: produce una Decision con todos los candidatos, el desglose de su
+score, los descartados CON su motivo y una traza legible:
+
+```
+$ asterion graph act examples/agca-experience.asterion \
+    --goal "buscar la serie histórica de precios" --intent search_series --agent analyst
+Decision dec-1790669218502651000-1
+  Intent: search_series
+    goal: buscar la serie histórica de precios
+  World: EconomicResearch (EconomicResearch@0)
+  Candidatos:
+   * statistics.search_series           0.488  (goal=0.38 world=0.00 contrato=1.00 experiencia=0.50)
+     inventory.get_stock                0.175  (goal=0.00 world=0.00 contrato=0.00 experiencia=0.50)
+     statistics.calculate_mean          0.175  (goal=0.00 world=0.00 contrato=0.00 experiencia=0.50)
+     statistics.correlation             0.175  (goal=0.00 world=0.00 contrato=0.00 experiencia=0.50)
+  Descartados:
+     inventory.delete_record            el agente "Analyst" deniega explícitamente "inventory.delete_record"
+  Seleccionada: statistics.search_series
+  Contrato: statistics.search_series
+  Confianza: 0.488
+  Traza:
+     intent=search_series goal=buscar la serie histórica de precios
+     context=EconomicResearch|search_series
+     descartada inventory.delete_record: el agente "Analyst" deniega explícitamente "inventory.delete_record"
+     seleccionada statistics.search_series por score compuesto sobre el umbral
+
+No se ejecutó: tool: capability declarada pero sin handler registrado — no es ejecutable: "statistics.search_series"
+```
+
+Ese final es la regla más importante de toda la capa: **declarar no es
+implementar**. El `.asterion` declara el contrato; el handler lo ata un
+programa Go con `runtime.BindHandler`. Hasta entonces la capability es
+seleccionable y auditable pero NO ejecutable — nunca se improvisa una
+respuesta. Y `inventory.delete_record` ni siquiera llegó a competir: el
+`deny` del agente la sacó antes, con el motivo registrado.
+
+**El aprendizaje, corrido de verdad.** Con el handler atado, tres actos
+idénticos sobre el mismo contexto (salida real de un programa Go que usa
+`BindHandler`):
+
+```
+corrida 1: statistics.search_series -> final=0.92 | certeza 0.500 -> 0.625 (Δ +0.125) | score de la decisión=0.488
+corrida 2: statistics.search_series -> final=0.92 | certeza 0.625 -> 0.713 (Δ +0.088) | score de la decisión=0.531
+corrida 3: statistics.search_series -> final=0.92 | certeza 0.713 -> 0.774 (Δ +0.061) | score de la decisión=0.562
+```
+
+La certeza sube, y el score de la decisión sube con ella: la experiencia
+cambió decisiones futuras, que es exactamente lo que enuncia el Segundo
+Principio. La certeza vive por `(capability, contexto)` — una experiencia
+en `World=MedicalImage/Goal=DetectTumor` nunca mueve la certeza de
+`World=FinancialAnalysis/Goal=HistoricalPriceSearch`.
+
+Y una capability denegada nunca llega al handler, aunque exista y esté
+implementada:
+
+```
+--- una capability DENEGADA por el agente nunca llega al handler ---
+resultado: runtime: NO_EXECUTION: ninguna capability alcanzó la certeza mínima requerida
+```
+
+**Roles: la autoridad de quién opera.** Un agente es *quién actúa*
+dentro de la inteligencia; un rol es *en nombre de quién*. El mismo
+agente, operado por un viewer o por un operador, no puede hacer lo
+mismo — la autoridad efectiva es la **intersección** de los dos:
+
+```python
+viewer = AGCA.role(
+    intelligence=brain, name="viewer",
+    allow=["statistics.search_series"],
+    users=["lectura@empresa.com"],
+)
+
+data_analyst = AGCA.role(
+    intelligence=brain, name="analyst",
+    inherits=[viewer],                                  # amplía lo del viewer
+    allow=["statistics.calculate_mean", "inventory.get_stock"],
+    users=["analista@empresa.com"],
+)
+
+operator = AGCA.role(
+    intelligence=brain, name="operator",
+    inherits=[data_analyst],
+    allow=["inventory.delete_record"],
+    deny=["statistics.correlation"],                    # ni heredándolo
+    users=["operaciones@empresa.com"],
+)
+```
+
+`asterion graph roles` aplana la cadena y muestra el conjunto efectivo —
+notá que `operator` hereda `correlation` de `analyst` pero la tiene
+denegada, y por eso NO aparece entre lo que puede:
+
+```
+$ asterion graph roles examples/agca-experience.asterion
+analyst
+  Analista: además de consultar, puede calcular y ver stock.
+  hereda: viewer
+  puede:
+    ✓ inventory.get_stock
+    ✓ statistics.calculate_mean
+    ✓ statistics.correlation
+    ✓ statistics.search_series
+  usuarios: analista@empresa.com
+
+operator
+  Operación: lo del analista, más borrar registros — pero nunca correlaciones (dato sensible).
+  hereda: viewer -> analyst
+  puede:
+    ✓ inventory.delete_record
+    ✓ inventory.get_stock
+    ✓ statistics.calculate_mean
+    ✓ statistics.search_series
+    ✗ statistics.correlation (denegado explícitamente)
+  usuarios: operaciones@empresa.com
+
+viewer
+  Solo consulta de series estadísticas.
+  puede:
+    ✓ statistics.search_series
+  usuarios: lectura@empresa.com
+```
+
+**Deny gana siempre**: heredar amplía lo permitido, nunca reabre lo que
+un ancestro prohibió.
+
+El mismo goal, distinto usuario, distinta autoridad — y el motivo del
+rechazo nombra al rol:
+
+```
+$ asterion graph act examples/agca-experience.asterion \
+    --goal "calcular la media del dataset" --intent calculate_mean --user lectura@empresa.com
+  Actor: lectura@empresa.com (rol viewer)
+  Descartados:
+     statistics.calculate_mean          el rol "viewer" no tiene "statistics.calculate_mean" entre sus capabilities (deny-by-default)
+  NO_EXECUTION: ninguna capability alcanzó la certeza mínima requerida
+```
+
+```
+$ asterion graph act examples/agca-experience.asterion \
+    --goal "calcular la media del dataset" --intent calculate_mean --user analista@empresa.com
+  Actor: analista@empresa.com (rol analyst)
+  Seleccionada: statistics.calculate_mean
+```
+
+`--user` resuelve el rol contra los `users=[...]` declarados; `--role`
+lo fija a mano (son excluyentes entre sí). Sin ninguno de los dos, se
+usa el `role=` que declare el propio agente, y si tampoco hay, la
+autoridad queda solo en el agente — nunca en "sin restricciones".
+
+**El pipeline es obligatorio y en este orden** (`runtime.Act`):
+
+```text
+Decision -> Policy Check -> Role ∩ Agent Permission Check -> Tool Contract
+  -> Requirements -> Handler -> Result -> Evaluation -> Experience
+  -> Confidence Update
+```
+
+La evaluación combina cuatro fuentes INDEPENDIENTES — la autoevaluación
+de la Tool es solo una, y nunca decide sola: una Tool que se declara
+perfecta pero no cumplió sus `guarantees` termina con un score final
+bajo igual.
+
+Todo esto persiste en `~/.config/asterion/agca/<intelligence>/`, así que
+`asterion graph decisions` y `asterion graph explain <id>` funcionan
+entre corridas distintas del CLI.
+
+## 10. Dónde seguir
 
 - `README.md` — panorama general, estado real del proyecto, qué falta.
 - `spec/grammar.md` — gramática completa (léxico + EBNF) y las tablas
-  completas de verbos de los cuatro DSL (`Contract.*`/`System.*`/`AGCA.*`,
-  más infraestructura) con su cardinalidad, sus campos y sus códigos
-  `ASTRnnn`.
+  completas de verbos de los cuatro DSL (`Contract.*`/`System.*`/`AGCA.*`
+  + `Tool.*`, más infraestructura) con su cardinalidad, sus campos y sus
+  códigos `ASTRnnn`.
 - `examples/` — todos los `.asterion` de este tutorial (y más) corren como
   golden tests reales del compilador, no son solo ilustrativos.
 - `semantic/analyzer_test.go`/`semantic/golden_test.go`,

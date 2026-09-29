@@ -1,0 +1,182 @@
+language "0.1"
+
+# Ejemplo de la capa de EXPERIENCIA de AGCA — el Segundo Principio de AGI:
+#
+#   "AGCA aprende cuando los resultados de sus interacciones con un World
+#    modifican la certeza con la que seleccionará capacidades frente a
+#    estados futuros semejantes del World."
+#
+# Probalo con:
+#   asterion graph act examples/agca-experience.asterion \
+#       --goal "buscar la serie histórica de precios" --intent search_series --agent analyst
+#   asterion graph decisions examples/agca-experience.asterion
+#   asterion graph explain examples/agca-experience.asterion <decision-id>
+#
+# Lo que este archivo declara son CONTRATOS, no implementaciones: una
+# capability declarada acá es seleccionable y auditable, pero solo se
+# ejecuta si algún programa Go le ató un handler
+# (runtime.BindHandler) — declarar nunca es implementar.
+
+# --- Tools: conjuntos CERRADOS de capacidades declaradas ------------------
+#
+# AGCA solo puede elegir entre estas capabilities. No existe ninguna ruta
+# hacia "ejecutá este SQL" o "corré este comando": lo que no está
+# declarado acá, simplemente no es invocable.
+
+stats = Tool.define(name="Statistics", category="statistics")
+
+search_series = Tool.capability(
+    tool=stats,
+    name="search_series",
+    input=["query:String"],
+    output=["series:Dataset"],
+    effects=["read_only"],
+    requires=["network.available"],
+    guarantees=["returns:series"],
+    description="Busca una serie estadística histórica.",
+)
+
+calculate_mean = Tool.capability(
+    tool=stats,
+    name="calculate_mean",
+    input=["dataset:Dataset"],
+    output=["mean:Number"],
+    effects=["pure"],
+    guarantees=["returns:mean"],
+)
+
+correlation = Tool.capability(
+    tool=stats,
+    name="correlation",
+    input=["a:Dataset", "b:Dataset"],
+    output=["coefficient:Number"],
+    effects=["pure"],
+    guarantees=["returns:coefficient"],
+)
+
+# Una Tool de base de datos expone OPERACIONES CONTRACTUALES seguras. Por
+# dentro usará SQL — pero AGCA nunca ve ese SQL ni puede componerlo: solo
+# conoce "inventory.get_stock", que resuelve a un handler predefinido.
+inventory = Tool.define(name="Inventory", category="inventory")
+
+get_stock = Tool.capability(
+    tool=inventory,
+    name="get_stock",
+    input=["sku:String"],
+    output=["stock:Number"],
+    effects=["read_only"],
+    guarantees=["returns:stock"],
+)
+
+# Una capability destructiva se declara como tal — y las políticas y los
+# permisos del agente pueden vetarla ANTES de que se ejecute, mirando
+# justamente este effect.
+delete_record = Tool.capability(
+    tool=inventory,
+    name="delete_record",
+    input=["id:String"],
+    effects=["destructive", "modifies:World.Inventory"],
+)
+
+# --- La inteligencia -------------------------------------------------------
+
+brain = AGCA.intelligence(name="ResearchBrain")
+
+world = AGCA.graph(
+    intelligence=brain,
+    name="EconomicResearch",
+    hierarchical=true,
+    persistent=true,
+    temporal=true,
+    provenance=true,
+)
+
+local_fast = AGCA.neuron(
+    intelligence=brain,
+    name="LocalFast",
+    runtime="gguf",
+    capabilities=["classification"],
+    privacy="local",
+)
+
+memory = AGCA.memory(intelligence=brain, name="LongTerm", type="hybrid", graph=world)
+
+# Política del SISTEMA: nada destructivo, sin importar quién lo pida. Se
+# evalúa mirando los effects del contrato, antes de ejecutar.
+no_destructive = AGCA.policy(
+    intelligence=brain,
+    name="ReadOnlyDataAccess",
+    when="always",
+    deny="destructive",
+)
+
+# --- Roles: la autoridad de QUIÉN OPERA -----------------------------------
+#
+# Un agente es "quién actúa" dentro de la inteligencia; un rol es "en
+# nombre de quién". El mismo agente, operado por un viewer o por un
+# admin, no puede hacer las mismas cosas: la autoridad efectiva es la
+# INTERSECCIÓN de las dos (ninguna amplía a la otra).
+#
+# Heredar AMPLÍA lo permitido, nunca reabre lo prohibido: deny gana
+# siempre, venga del rol que venga en la cadena.
+#
+#   asterion graph roles examples/agca-experience.asterion
+
+viewer = AGCA.role(
+    intelligence=brain,
+    name="viewer",
+    description="Solo consulta de series estadísticas.",
+    allow=["statistics.search_series"],
+    users=["lectura@empresa.com"],
+)
+
+data_analyst = AGCA.role(
+    intelligence=brain,
+    name="analyst",
+    description="Analista: además de consultar, puede calcular y ver stock.",
+    inherits=[viewer],
+    allow=[
+        "statistics.calculate_mean",
+        "statistics.correlation",
+        "inventory.get_stock",
+    ],
+    users=["analista@empresa.com"],
+)
+
+operator = AGCA.role(
+    intelligence=brain,
+    name="operator",
+    description="Operación: lo del analista, más borrar registros — pero nunca correlaciones (dato sensible).",
+    inherits=[data_analyst],
+    allow=["inventory.delete_record"],
+    deny=["statistics.correlation"],
+    users=["operaciones@empresa.com"],
+)
+
+# Frontera de autoridad del AGENTE: "Tool instalada ≠ Tool accesible".
+# Inventory declara 2 capabilities; este analista solo puede usar una, y
+# delete_record queda explícitamente denegada además de la política.
+analyst = AGCA.agent(
+    intelligence=brain,
+    name="Analyst",
+    strategy="adaptive",
+    role=data_analyst,
+    allow=[
+        "statistics.search_series",
+        "statistics.calculate_mean",
+        "statistics.correlation",
+        "inventory.get_stock",
+    ],
+    deny=[
+        "inventory.delete_record",
+        "database.raw_sql",
+        "system.shell",
+    ],
+)
+
+assistant = AGCA.bot(
+    intelligence=brain,
+    name="ResearchAssistant",
+    interface="terminal",
+    permissions=["statistics.search_series"],
+)

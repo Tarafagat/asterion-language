@@ -389,3 +389,109 @@ bad = AGCA.secret(name="X", from=brain.db, field="config:x")
 		t.Errorf("codes = %v, want [ASTR608]", got)
 	}
 }
+
+// --- Tool.* (contratos de capability) y permisos de agente ---------------
+
+const toolContracts = `
+language "0.1"
+
+stats = Tool.define(name="Statistics", category="statistics")
+
+search = Tool.capability(
+    tool=stats,
+    name="search_series",
+    input=["query:String"],
+    output=["series:Dataset"],
+    effects=["read_only"],
+    requires=["network.available"],
+    guarantees=["returns:Dataset"],
+)
+
+mean = Tool.capability(tool=stats, name="calculate_mean", effects=["pure"], output=["mean:Number"])
+
+brain = AGCA.intelligence(name="Brain")
+analyst = AGCA.agent(
+    intelligence=brain,
+    name="Analyst",
+    allow=["statistics.search_series", "statistics.calculate_mean"],
+    deny=["database.raw_sql", "system.shell"],
+)
+`
+
+func TestCompile_ToolCapabilityContracts(t *testing.T) {
+	prog := parseOK(t, toolContracts)
+	spec, diags := Compile(prog, "")
+	if diags.HasErrors() {
+		t.Fatalf("no esperaba errores:\n%s", diags.String())
+	}
+	if len(spec.Tools) != 1 || spec.Tools[0].Name != "Statistics" || spec.Tools[0].Category != "statistics" {
+		t.Fatalf("Tools = %+v", spec.Tools)
+	}
+	if len(spec.ToolCaps) != 2 {
+		t.Fatalf("ToolCaps = %d, want 2", len(spec.ToolCaps))
+	}
+	search := spec.ToolCaps[0]
+	if search.ID != "statistics.search_series" {
+		t.Errorf("ID = %q, want \"statistics.search_series\"", search.ID)
+	}
+	if len(search.Effects) != 1 || search.Effects[0] != "read_only" {
+		t.Errorf("Effects = %v", search.Effects)
+	}
+	if len(search.Requires) != 1 || search.Requires[0] != "network.available" {
+		t.Errorf("Requires = %v", search.Requires)
+	}
+	if len(search.Guarantees) != 1 || search.Guarantees[0] != "returns:Dataset" {
+		t.Errorf("Guarantees = %v", search.Guarantees)
+	}
+	if spec.ToolCaps[1].ID != "statistics.calculate_mean" {
+		t.Errorf("ToolCaps[1].ID = %q", spec.ToolCaps[1].ID)
+	}
+}
+
+func TestCompile_AgentAllowDeny(t *testing.T) {
+	prog := parseOK(t, toolContracts)
+	spec, diags := Compile(prog, "")
+	if diags.HasErrors() {
+		t.Fatalf("no esperaba errores:\n%s", diags.String())
+	}
+	if len(spec.Agents) != 1 {
+		t.Fatalf("Agents = %d, want 1", len(spec.Agents))
+	}
+	a := spec.Agents[0]
+	if len(a.Allow) != 2 || a.Allow[0] != "statistics.search_series" {
+		t.Errorf("Allow = %v", a.Allow)
+	}
+	if len(a.Deny) != 2 || a.Deny[0] != "database.raw_sql" {
+		t.Errorf("Deny = %v", a.Deny)
+	}
+}
+
+func TestCompile_ReadOnlyCapabilityCannotBeMutating(t *testing.T) {
+	prog := parseOK(t, `
+stats = Tool.define(name="Statistics")
+bad = Tool.capability(tool=stats, name="search", effects=["read_only", "destructive"])
+`)
+	_, diags := Compile(prog, "")
+	if got := codes(diags); len(got) != 1 || got[0] != "ASTR622" {
+		t.Errorf("codes = %v, want [ASTR622]", got)
+	}
+}
+
+func TestCompile_ToolCapabilityRequiresRealTool(t *testing.T) {
+	prog := parseOK(t, `
+brain = AGCA.intelligence(name="Brain")
+bad = Tool.capability(tool=brain, name="x")
+`)
+	_, diags := Compile(prog, "")
+	if got := codes(diags); len(got) != 1 || got[0] != "ASTR608" {
+		t.Errorf("codes = %v, want [ASTR608] (brain es una intelligence, no una Tool)", got)
+	}
+}
+
+func TestCompile_UnknownToolVerb(t *testing.T) {
+	prog := parseOK(t, `x = Tool.nonexistent(name="X")`)
+	_, diags := Compile(prog, "")
+	if got := codes(diags); len(got) != 1 || got[0] != "ASTR621" {
+		t.Errorf("codes = %v, want [ASTR621]", got)
+	}
+}

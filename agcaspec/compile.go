@@ -44,6 +44,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/Tarafagat/asterion-language/ast"
 	"github.com/Tarafagat/asterion-language/diagnostics"
@@ -67,7 +68,78 @@ const (
 	KindBot          Kind = "bot"
 	KindSecret       Kind = "secret"
 	KindImport       Kind = "import"
+	KindTool         Kind = "tool"
+	KindCapability   Kind = "capability"
+	KindRole         Kind = "role"
 )
+
+// RoleDecl es AGCA.role(...) — la autoridad de un USUARIO, distinta de la
+// de un agente. Un agente es "quién actúa" dentro de la inteligencia; un
+// rol es "en nombre de quién": el mismo agente, operado por un viewer o
+// por un admin, no puede hacer las mismas cosas.
+//
+// Inherits compone roles (un analyst hereda lo del viewer y suma lo
+// suyo). La regla de composición es la única segura: DENY GANA SIEMPRE,
+// venga de donde venga — si cualquier rol de la cadena deniega una
+// capability, ningún allow posterior la reabre. Allow vacío en toda la
+// cadena significa "este rol no puede invocar nada" (deny-by-default).
+//
+// Users mapea identidades concretas a este rol, para que el CLI pueda
+// resolver "qué puede hacer ESTE usuario" sin que nadie declare su rol a
+// mano en cada invocación.
+type RoleDecl struct {
+	VarName      string
+	Name         string
+	Description  string
+	Intelligence string
+	Allow        []string
+	Deny         []string
+	Inherits     []string // VarNames de otros RoleDecl
+	Users        []string
+}
+
+// ToolDecl es Tool.define(...) — una herramienta con la que una
+// Intelligence puede ACTUAR sobre un World. Una Tool no es ejecutable por
+// sí misma: solo agrupa capabilities declaradas con Tool.capability(...),
+// y AGCA nunca puede invocar nada fuera de ese conjunto explícito (ver el
+// doc comment de CapabilityContractDecl).
+type ToolDecl struct {
+	VarName  string
+	Name     string
+	Category string
+	// Isolation es "sandbox" para una Tool que ejecuta código (ver § 9 del
+	// pedido de Experience: SandboxedPython) — vacío para una Tool normal.
+	// Este compilador solo lo traduce a datos; forzar el aislamiento de
+	// verdad es responsabilidad del runtime que registre su handler.
+	Isolation string
+}
+
+// CapabilityContractDecl es Tool.capability(...) — el contrato explícito
+// de UNA operación de una Tool. Es la unidad que AGCA puede seleccionar:
+// nunca un string arbitrario, nunca código generado. Su ID estable es
+// "<tool en minúsculas>.<name>" (ej. "statistics.search_series") y es lo
+// único que viaja desde una Decision hasta el runtime, que lo resuelve
+// contra un handler registrado de antemano.
+//
+// Effects/Requires/Guarantees son vocabulario declarativo que el runtime
+// consulta ANTES de ejecutar: Effects dice qué puede pasarle al World
+// (read_only, pure, mutating, external_write, destructive, más tags
+// libres como "creates:Payment"), Requires son precondiciones
+// verificables (ej. "network.available"), Guarantees es lo que el
+// contrato promete devolver (ej. "returns:Dataset") — y es contra esas
+// garantías que la Experience evalúa después si la ejecución cumplió.
+type CapabilityContractDecl struct {
+	VarName     string
+	Tool        string // VarName del ToolDecl al que pertenece
+	ID          string // "<tool>.<name>", estable, lo que selecciona una Decision
+	Name        string
+	Description string
+	Input       []string
+	Output      []string
+	Effects     []string
+	Requires    []string
+	Guarantees  []string
+}
 
 // IntelligenceDecl es AGCA.intelligence(name=...) — el contenedor lógico
 // al que se cuelgan graph/neuron/swarm/agent/memory/policy/bot vía su
@@ -124,11 +196,26 @@ type SwarmDecl struct {
 
 // AgentDecl es AGCA.agent(...) — un agente ejecutivo o especializado que
 // coordina neuronas/swarms/capabilities dentro de una Intelligence.
+// AgentDecl es AGCA.agent(...). Allow/Deny son la frontera de autoridad
+// de ESTE agente sobre las capabilities declaradas con Tool.capability(...)
+// — "Tool instalada ≠ Tool accesible" (§ 22 del pedido de Experience):
+// que una Tool declare 20 capabilities no significa que un agente pueda
+// usar las 20. Deny gana siempre sobre Allow; Allow vacío significa
+// "ninguna capability de Tool autorizada todavía" (deny-by-default, mismo
+// criterio que Contract.permissions y AGCA.secret.allow) — el runtime lo
+// verifica ANTES de resolver ningún handler, nunca después.
 type AgentDecl struct {
 	VarName      string
 	Name         string
 	Intelligence string
 	Strategy     string
+	Allow        []string
+	Deny         []string
+	// Role es el rol que este agente asume por default (VarName de un
+	// RoleDecl). La autoridad efectiva es la INTERSECCIÓN de las dos
+	// listas: lo que el rol permite Y el agente permite. Ninguna de las
+	// dos puede ampliar a la otra.
+	Role string
 }
 
 // CapabilityRequirement es AGCA.requires_capability(...) — una directiva
@@ -256,6 +343,9 @@ type Spec struct {
 	Bots          []BotDecl
 	Secrets       []SecretDecl
 	Imports       []ImportDecl
+	Tools         []ToolDecl
+	ToolCaps      []CapabilityContractDecl
+	Roles         []RoleDecl
 }
 
 // Compile recorre prog.Statements y arma la descripción de la
@@ -280,6 +370,7 @@ func Compile(prog *ast.Program, baseDir string) (*Spec, *diagnostics.Bag) {
 		diags:       &diagnostics.Bag{},
 		kinds:       map[string]Kind{},
 		importByVar: map[string]ImportDecl{},
+		toolByVar:   map[string]string{},
 		baseDir:     baseDir,
 	}
 	c.walkStmts(prog.Statements)
@@ -289,8 +380,9 @@ func Compile(prog *ast.Program, baseDir string) (*Spec, *diagnostics.Bag) {
 type compiler struct {
 	spec        *Spec
 	diags       *diagnostics.Bag
-	kinds       map[string]Kind        // nombre de variable declarado -> qué verbo lo declaró
-	importByVar map[string]ImportDecl  // nombre de variable de un Import(...) ya resuelto -> su ImportDecl
+	kinds       map[string]Kind       // nombre de variable declarado -> qué verbo lo declaró
+	importByVar map[string]ImportDecl // nombre de variable de un Import(...) ya resuelto -> su ImportDecl
+	toolByVar   map[string]string     // nombre de variable de un Tool.define(...) -> su Name declarado
 	baseDir     string
 }
 
@@ -314,6 +406,10 @@ func (c *compiler) walkStmt(stmt ast.Stmt) {
 			c.compileImport(s.Name, callExpr)
 			return
 		}
+		if verb, ok := namespacedVerb(callExpr.Callee, "Tool"); ok {
+			c.compileTool(s.Name, verb, callExpr)
+			return
+		}
 		verb, ok := agcaVerb(callExpr.Callee)
 		if !ok {
 			return
@@ -335,16 +431,115 @@ func (c *compiler) walkStmt(stmt ast.Stmt) {
 
 // agcaVerb reconoce la forma AGCA.<verbo>(...) en el callee de un
 // CallExpr.
-func agcaVerb(callee ast.Expr) (string, bool) {
+func agcaVerb(callee ast.Expr) (string, bool) { return namespacedVerb(callee, "AGCA") }
+
+// namespacedVerb reconoce la forma <Namespace>.<verbo>(...) en el callee
+// de un CallExpr — AGCA.* y Tool.* comparten este paquete (una Tool solo
+// tiene sentido como algo que una Intelligence puede invocar) pero son
+// namespaces distintos a propósito: Tool.* describe QUÉ SABE HACER una
+// herramienta, AGCA.* describe QUIÉN la usa y bajo qué políticas.
+func namespacedVerb(callee ast.Expr, namespace string) (string, bool) {
 	attr, ok := callee.(*ast.AttrExpr)
 	if !ok {
 		return "", false
 	}
 	root, ok := attr.X.(*ast.Ident)
-	if !ok || root.Name != "AGCA" {
+	if !ok || root.Name != namespace {
 		return "", false
 	}
 	return attr.Name, true
+}
+
+// nonMutatingEffects/mutatingEffects son el vocabulario CERRADO de
+// efectos que este compilador entiende y puede contradecir entre sí —
+// cualquier otro effect (ej. "creates:Payment",
+// "modifies:World.Infrastructure", "financial_operation") pasa como tag
+// libre, sin validación: el contrato de una Tool puede describir más de
+// lo que este compilador sabe juzgar, pero NUNCA puede declararse
+// read_only y destructiva a la vez (ASTR622).
+var nonMutatingEffects = map[string]bool{"read_only": true, "pure": true}
+var mutatingEffects = map[string]bool{"mutating": true, "external_write": true, "destructive": true}
+
+// compileTool resuelve `name = Tool.define(...)` y
+// `name = Tool.capability(...)`.
+func (c *compiler) compileTool(name, verb string, callExpr *ast.CallExpr) {
+	if existing, redeclared := c.kinds[name]; redeclared {
+		c.diags.Errorf(callExpr.Pos, "ASTR600",
+			"%q ya fue declarado antes en este archivo (como %s) — los nombres deben ser únicos", name, existing)
+		return
+	}
+
+	cc := &call{verb: verb, args: callExpr.Args, pos: callExpr.Pos, diags: c.diags, kinds: c.kinds, importByVar: c.importByVar}
+
+	switch verb {
+	case "define":
+		dispName, _ := cc.str("name", true)
+		c.spec.Tools = append(c.spec.Tools, ToolDecl{
+			VarName:   name,
+			Name:      dispName,
+			Category:  mustStr(cc, "category"),
+			Isolation: mustStr(cc, "isolation"),
+		})
+		c.toolByVar[name] = dispName
+		c.declare(name, KindTool)
+
+	case "capability":
+		toolVar, _ := cc.ref("tool", true, KindTool)
+		capName, _ := cc.str("name", true)
+		effects := cc.stringList("effects")
+		c.checkEffectConflict(callExpr, capName, effects)
+
+		id := ""
+		if toolVar != "" && capName != "" {
+			id = strings.ToLower(c.toolByVar[toolVar]) + "." + capName
+		}
+		c.spec.ToolCaps = append(c.spec.ToolCaps, CapabilityContractDecl{
+			VarName:     name,
+			Tool:        toolVar,
+			ID:          id,
+			Name:        capName,
+			Description: mustStr(cc, "description"),
+			Input:       cc.stringList("input"),
+			Output:      cc.stringList("output"),
+			Effects:     effects,
+			Requires:    cc.stringList("requires"),
+			Guarantees:  cc.stringList("guarantees"),
+		})
+		c.declare(name, KindCapability)
+
+	default:
+		c.diags.Errorf(callExpr.Pos, "ASTR621",
+			"Tool.%s no existe — verbos válidos: define, capability", verb)
+	}
+}
+
+// checkEffectConflict rechaza una capability que se declare a la vez
+// no-mutante (read_only/pure) y mutante (mutating/external_write/
+// destructive): el runtime consulta effects ANTES de ejecutar para
+// decidir si una política la permite, así que un contrato que se
+// contradice a sí mismo haría esa decisión indefinida.
+func (c *compiler) checkEffectConflict(callExpr *ast.CallExpr, capName string, effects []string) {
+	var nonMutating, mutating string
+	for _, e := range effects {
+		if nonMutatingEffects[e] && nonMutating == "" {
+			nonMutating = e
+		}
+		if mutatingEffects[e] && mutating == "" {
+			mutating = e
+		}
+	}
+	if nonMutating != "" && mutating != "" {
+		c.diags.Errorf(callExpr.Pos, "ASTR622",
+			"Tool.capability %q declara %q y %q a la vez — una capability no puede ser no-mutante y mutante al mismo tiempo",
+			capName, nonMutating, mutating)
+	}
+}
+
+// mustStr lee un string opcional descartando el bool de presencia — solo
+// para campos donde "" y "no declarado" significan lo mismo.
+func mustStr(cc *call, key string) string {
+	v, _ := cc.str(key, false)
+	return v
 }
 
 // isImportCall reconoce Import(...) — a diferencia de AGCA.<verbo>, es
@@ -496,7 +691,11 @@ func (c *compiler) compileAssigned(name, verb string, callExpr *ast.CallExpr) {
 			dispName = name
 		}
 		strategy, _ := cc.str("strategy", false)
-		c.spec.Agents = append(c.spec.Agents, AgentDecl{VarName: name, Name: dispName, Intelligence: intelligence, Strategy: strategy})
+		role, _ := cc.ref("role", false, KindRole)
+		c.spec.Agents = append(c.spec.Agents, AgentDecl{
+			VarName: name, Name: dispName, Intelligence: intelligence, Strategy: strategy,
+			Allow: cc.stringList("allow"), Deny: cc.stringList("deny"), Role: role,
+		})
 		c.declare(name, KindAgent)
 
 	case "memory":
@@ -538,6 +737,23 @@ func (c *compiler) compileAssigned(name, verb string, callExpr *ast.CallExpr) {
 		c.spec.Bots = append(c.spec.Bots, BotDecl{VarName: name, Name: dispName, Intelligence: intelligence, Interface: iface, Permissions: permissions})
 		c.declare(name, KindBot)
 
+	case "role":
+		intelligence, _ := cc.ref("intelligence", true, KindIntelligence)
+		dispName, hasName := cc.str("name", false)
+		if !hasName {
+			dispName = name
+		}
+		inherits := cc.refList("inherits", KindRole)
+		c.spec.Roles = append(c.spec.Roles, RoleDecl{
+			VarName: name, Name: dispName, Intelligence: intelligence,
+			Description: mustStr(cc, "description"),
+			Allow:       cc.stringList("allow"),
+			Deny:        cc.stringList("deny"),
+			Inherits:    inherits,
+			Users:       cc.stringList("users"),
+		})
+		c.declare(name, KindRole)
+
 	case "secret":
 		dispName, _ := cc.str("name", true)
 		source, hasSource := cc.str("source", false)
@@ -565,7 +781,7 @@ func (c *compiler) compileAssigned(name, verb string, callExpr *ast.CallExpr) {
 		c.declare(name, KindSecret)
 
 	default:
-		c.diags.Errorf(callExpr.Pos, "ASTR605", "AGCA.%s no existe — verbos válidos: intelligence, graph, neuron, swarm, agent, requires_capability, memory, policy, bot, secret", verb)
+		c.diags.Errorf(callExpr.Pos, "ASTR605", "AGCA.%s no existe — verbos válidos: intelligence, graph, neuron, swarm, agent, role, requires_capability, memory, policy, bot, secret", verb)
 	}
 }
 
@@ -790,6 +1006,46 @@ func (c *call) pluginRef(key string, required bool) (PluginRef, bool) {
 		return PluginRef{}, false
 	}
 	return PluginRef{ImportVar: root.Name, Plugin: attr.Name}, true
+}
+
+// refList lee una lista de REFERENCIAS (Idents) a nombres ya declarados
+// con el verbo wantKind — ej. inherits=[viewer, analyst]. A diferencia
+// de stringList, cada elemento se valida contra lo realmente declarado:
+// heredar de un nombre que no es un rol es un error, no un string suelto
+// que nadie mira.
+func (c *call) refList(key string, wantKind Kind) []string {
+	v, ok := c.find(key)
+	if !ok {
+		return nil
+	}
+	list, ok := v.(*ast.ListLit)
+	if !ok {
+		c.diags.Errorf(v.Position(), "ASTR602", "AGCA.%s: %q debe ser una lista de referencias, no %s", c.verb, key, exprKind(v))
+		return nil
+	}
+	out := make([]string, 0, len(list.Elements))
+	for _, el := range list.Elements {
+		ident, ok := el.(*ast.Ident)
+		if !ok {
+			c.diags.Errorf(el.Position(), "ASTR603",
+				"AGCA.%s: los elementos de %q deben ser referencias a un AGCA.%s(...) declarado más arriba, no %s",
+				c.verb, key, wantKind, exprKind(el))
+			continue
+		}
+		gotKind, declared := c.kinds[ident.Name]
+		if !declared {
+			c.diags.Errorf(el.Position(), "ASTR604",
+				"AGCA.%s: %q referencia a %q, que no fue declarado antes de esta línea", c.verb, key, ident.Name)
+			continue
+		}
+		if gotKind != wantKind {
+			c.diags.Errorf(el.Position(), "ASTR608",
+				"AGCA.%s: %q referencia a %q, que es un AGCA.%s(...), no un AGCA.%s(...)", c.verb, key, ident.Name, gotKind, wantKind)
+			continue
+		}
+		out = append(out, ident.Name)
+	}
+	return out
 }
 
 func containsString(list []string, want string) bool {

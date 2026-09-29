@@ -200,10 +200,51 @@ que un plugin YA resoluble declaró es una doble declaración innecesaria
 El documento de investigación original ("Camino a la AGI") propone una
 sintaxis de bloques con llaves que este lenguaje no tiene — `AGCA.*`
 expresa la misma idea con el estilo que ya usan `Contract.*`/`System.*`.
-Ver `spec/grammar.md` § "DSL de inteligencia cognitiva" por la tabla
-completa de verbos y los códigos `ASTR600`-`ASTR613`, y
-`examples/agca-company.asterion` por un ejemplo real y completo (incluye
-un bot y un `Import(...)` de `examples/tutorial-system.asterion`).
+**Tools: lo único que una Intelligence puede EJECUTAR.** `Tool.define(...)`
+y `Tool.capability(...)` declaran contratos explícitos (effects, requires,
+guarantees) y son la frontera de autoridad de AGCA: solo puede
+seleccionar un `CapabilityID` declarado, que el runtime resuelve contra
+un handler registrado de antemano. No hay ningún camino hacia `eval`,
+shell o SQL crudo — una Tool de base de datos puede usar SQL por dentro,
+pero AGCA solo conoce `inventory.get_stock`. `AGCA.agent(allow=[...],
+deny=[...])` acota eso todavía más por agente (deny-by-default):
+
+```python
+stats = Tool.define(name="Statistics", category="statistics")
+search = Tool.capability(
+    tool=stats, name="search_series",
+    effects=["read_only"], requires=["network.available"], guarantees=["returns:series"],
+)
+analyst = AGCA.agent(intelligence=brain, name="Analyst",
+    allow=["statistics.search_series"], deny=["database.raw_sql", "system.shell"])
+```
+
+**Roles: la autoridad de quién opera.** Un agente es *quién actúa*; un
+rol es *en nombre de quién*. Heredan entre sí (ampliando lo permitido),
+pero **deny gana siempre** — ningún rol hijo reabre lo que un ancestro
+prohibió. La autoridad efectiva es la intersección de rol y agente:
+
+```python
+viewer = AGCA.role(intelligence=brain, name="viewer",
+    allow=["statistics.search_series"], users=["lectura@empresa.com"])
+
+operator = AGCA.role(intelligence=brain, name="operator",
+    inherits=[viewer],
+    allow=["inventory.delete_record"],
+    deny=["statistics.correlation"],          # ni heredándolo
+    users=["operaciones@empresa.com"])
+```
+
+```bash
+asterion graph roles mi-inteligencia.asterion     # qué puede cada rol, herencia ya resuelta
+asterion graph act ... --user lectura@empresa.com # el rol se resuelve solo desde users=[...]
+```
+
+Ver `spec/grammar.md` § "Contratos de capability" y § "DSL de
+inteligencia cognitiva" por las tablas completas de verbos y los códigos
+`ASTR600`-`ASTR622`, `examples/agca-company.asterion` por un ejemplo con
+un bot y un `Import(...)`, y `examples/agca-experience.asterion` por uno
+con Tools, políticas y permisos de agente.
 Construir la Intelligence de verdad (Cognitive Graph, Neuron Registry,
 Agent Scheduler, ciclo cognitivo) vive en
 `asterion-graph-cognitive-architecture`, no en este repo — acá solo se
