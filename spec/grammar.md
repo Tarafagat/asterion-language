@@ -162,6 +162,7 @@ Ejemplo completo: `examples/plugin-manifest.asterion`.
 | `Contract.permissions(network?, filesystem?, database?, secrets?)` | una vez | Permissions |
 | `Contract.events(publishes?, subscribes?)` | una vez | Events |
 | `Contract.config(key, label?, type?, secret?, required?, default?)` | repetible | append a ConfigSchema |
+| `Contract.service(name, kind, version?, database?, user?, maps_host?, maps_port?, maps_user?, maps_password?, maps_database?, maps_url?)` | repetible | append a Services |
 | `Contract.resource(name, endpoint, schema?, primary_key?, crud?)` | repetible | append a Resources |
 | `Contract.action(name, method, endpoint, description?)` | repetible | append a Actions |
 
@@ -181,6 +182,55 @@ como funcionaba antes de que existiera la forma explícita. Solo tienen
 efecto cuando `language.name == "python"` — `asterion plugin build`
 (`asterion-core`) es quien los usa para decidir dónde crear el venv (si
 no existe) y qué instalar con `pip install -r`.
+
+### `Contract.service(...)`: los servicios externos que el plugin necesita
+
+`Contract.service(...)` declara una dependencia de infraestructura del
+plugin — una base de datos o un Redis. `kind` es uno de `postgres`,
+`mysql`, `mariadb` o `redis`. `database` y `user` son los nombres a crear
+(si no se declaran, se usa el `name` del servicio); un `redis` no acepta
+ninguno de los dos, porque no tiene ni bases ni usuarios que crear.
+
+Los `maps_*` son el punto del verbo: dicen a QUÉ claves del propio
+`config_schema` volcar los datos de conexión una vez resueltos. Cada
+`maps_*` tiene que nombrar una clave que exista en un `Contract.config`
+del mismo archivo, y `Validate()` lo verifica — un `maps_host="DB_HOTS"`
+mal tipeado, si pasara, dejaría al plugin sin configurar sin que nada lo
+dijera. Un `maps_*` que no se declara simplemente no se completa: el
+manifiesto decide cuánto de la conexión le interesa recibir (un plugin
+que solo quiere una `DATABASE_URL` declara nada más que `maps_url`).
+
+Quien consume esto es `asterion plugin services` (ver el README de
+`asterion-core`), y el orden que sigue es siempre: detectar lo que ya
+existe, configurar adentro de eso, y levantar un contenedor solo si se
+pide explícitamente. El manifiesto describe la necesidad; no decide cómo
+se satisface.
+
+```asterion
+Contract.config(key="DB_HOST", type="string", required=true)
+Contract.config(key="DB_PORT", type="string", required=true)
+Contract.config(key="DB_USER", type="string", required=true)
+Contract.config(key="DB_PASSWORD", type="secret", required=true)
+Contract.config(key="DB_NAME", type="string", required=true)
+
+Contract.service(
+    name="db",
+    kind="postgres",
+    version="16",
+    database="fuelity",
+    user="fuelity_app",
+    maps_host="DB_HOST",
+    maps_port="DB_PORT",
+    maps_user="DB_USER",
+    maps_password="DB_PASSWORD",
+    maps_database="DB_NAME",
+)
+```
+
+`type="secret"` y `secret=true` son equivalentes en `Contract.config`:
+las dos marcan el campo como secreto a todos los efectos (enmascarado en
+`plugin config show`, excluido del `.env` del frontend en `plugin
+export`).
 
 ## DSL de sistema de plugins (`System.*`)
 

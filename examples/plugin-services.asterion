@@ -1,0 +1,118 @@
+language "0.1"
+
+# Un plugin que no se sostiene solo con configuración de texto: necesita una
+# base de datos con su usuario, un Redis para la cola, y un postgres aparte
+# donde escribir métricas. Eso es lo que declara Contract.service(...).
+#
+# Compilar y usar:
+#   asterion plugin from-asterion examples/plugin-services.asterion --out mi-plugin
+#   asterion plugin install ./mi-plugin --link
+#   asterion plugin services mi-plugin              # detecta y reporta, no toca nada
+#   asterion plugin services up mi-plugin           # configura en lo que YA existe
+#   asterion plugin services up mi-plugin --create  # además levanta lo que falte, en contenedor
+#   asterion plugin services connect mi-plugin db   # a mano, contra una base que ya exista en otro lado
+#
+# El orden que sigue 'plugin services' es siempre el mismo: detectar lo que
+# ya hay, configurar adentro de eso, y recién levantar un contenedor si se
+# pide explícitamente con --create. Este archivo describe la NECESIDAD; no
+# decide cómo se satisface.
+
+Contract.define(
+    name="asterion-orders-plugin",
+    version="0.3.0",
+    description="Registra y consulta pedidos, con cola de procesamiento y métricas propias.",
+    author="Asterion",
+    license="Apache-2.0",
+)
+
+Contract.language(name="go", version="1.25")
+
+Contract.start(command="./asterion-orders-plugin", port=0)
+Contract.health_path(path="/health")
+
+Contract.api(base_path="/api/v1")
+
+Contract.permissions(
+    database=true,
+    secrets=true,
+)
+
+# --- Las claves que el plugin lee de su entorno ---------------------------
+#
+# Ninguna de estas se tipea a mano: las completa 'plugin services up' con lo
+# que resuelva. Están declaradas porque el contrato exige que toda clave que
+# un maps_* menciona exista en el config_schema — un maps_host mal tipeado
+# dejaría al plugin sin configurar sin que nada lo dijera, y Validate() lo
+# rechaza por eso.
+
+Contract.config(key="DB_HOST", label="Host de la base de pedidos", type="string", required=true)
+Contract.config(key="DB_PORT", label="Puerto de la base de pedidos", type="string", required=true)
+Contract.config(key="DB_USER", label="Usuario de la base de pedidos", type="string", required=true)
+Contract.config(key="DB_PASSWORD", label="Contraseña de la base de pedidos", type="secret", required=true)
+Contract.config(key="DB_NAME", label="Nombre de la base de pedidos", type="string", required=true)
+
+Contract.config(key="REDIS_HOST", label="Host de Redis", type="string", required=true)
+Contract.config(key="REDIS_PORT", label="Puerto de Redis", type="string", required=true)
+Contract.config(key="REDIS_PASSWORD", label="Contraseña de Redis (si la pide)", type="secret")
+
+Contract.config(key="METRICS_URL", label="URL de la base de métricas", type="secret")
+
+# Esta sí es configuración de verdad: una decisión de quien instala el
+# plugin, que ningún servicio puede resolver por él.
+Contract.config(key="ORDER_RETENTION_DAYS", label="Días que se guarda un pedido cerrado", type="number", default="90")
+
+# --- Los servicios externos ----------------------------------------------
+
+# La base principal: Asterion crea la base y el usuario si faltan, con una
+# contraseña generada, y vuelca los cinco datos por separado.
+Contract.service(
+    name="db",
+    kind="postgres",
+    version="16",
+    database="orders",
+    user="orders_app",
+    maps_host="DB_HOST",
+    maps_port="DB_PORT",
+    maps_user="DB_USER",
+    maps_password="DB_PASSWORD",
+    maps_database="DB_NAME",
+)
+
+# Un Redis no tiene bases ni usuarios que crear, así que no acepta database=
+# ni user= — lo único que se resuelve es dónde está y, si pide contraseña,
+# dónde guardarla.
+Contract.service(
+    name="queue",
+    kind="redis",
+    version="7",
+    maps_host="REDIS_HOST",
+    maps_port="REDIS_PORT",
+    maps_password="REDIS_PASSWORD",
+)
+
+# Acá al plugin no le interesa recibir la conexión desarmada: le alcanza una
+# sola variable con la URL completa. Declarar solo maps_url es válido — el
+# manifiesto decide cuánto de la conexión quiere.
+Contract.service(
+    name="metrics",
+    kind="postgres",
+    database="orders_metrics",
+    user="orders_metrics",
+    maps_url="METRICS_URL",
+)
+
+# --- La API ---------------------------------------------------------------
+
+Contract.resource(
+    name="orders",
+    endpoint="/orders",
+    primary_key="id",
+    crud=["create", "read", "list", "update"],
+)
+
+Contract.action(
+    name="reprocess_order",
+    method="POST",
+    endpoint="/orders/{id}/reprocess",
+    description="Vuelve a encolar un pedido que quedó fallado.",
+)

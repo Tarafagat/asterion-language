@@ -167,6 +167,27 @@ func (c *compiler) dispatch(verb string, cc *call, callExpr *ast.CallExpr) {
 			Required: cc.boolVal("required", false),
 		})
 
+	case "service":
+		// Un servicio EXTERNO que el plugin necesita (una base, un Redis).
+		// maps_* dice a qué claves del propio config_schema volcar los
+		// datos de conexión una vez resueltos — ver apc.ServiceSpec.
+		name, _ := cc.str("name", true)
+		kind, _ := cc.str("kind", true)
+		version, _ := cc.str("version", false)
+		database, _ := cc.str("database", false)
+		user, _ := cc.str("user", false)
+		mapsHost, _ := cc.str("maps_host", false)
+		mapsPort, _ := cc.str("maps_port", false)
+		mapsUser, _ := cc.str("maps_user", false)
+		mapsPassword, _ := cc.str("maps_password", false)
+		mapsDatabase, _ := cc.str("maps_database", false)
+		mapsURL, _ := cc.str("maps_url", false)
+		c.manifest.Services = append(c.manifest.Services, apc.ServiceSpec{
+			Name: name, Kind: kind, Version: version, Database: database, User: user,
+			MapsHost: mapsHost, MapsPort: mapsPort, MapsUser: mapsUser,
+			MapsPassword: mapsPassword, MapsDatabase: mapsDatabase, MapsURL: mapsURL,
+		})
+
 	case "resource":
 		name, _ := cc.str("name", true)
 		endpoint, _ := cc.str("endpoint", true)
@@ -188,7 +209,7 @@ func (c *compiler) dispatch(verb string, cc *call, callExpr *ast.CallExpr) {
 
 	default:
 		c.diags.Errorf(callExpr.Pos, "ASTR301",
-			"Contract.%s no existe — verbos reconocidos: define, language, start, health_path, api, permissions, events, config, resource, action", verb)
+			"Contract.%s no existe — verbos reconocidos: define, language, start, health_path, api, permissions, events, config, service, resource, action", verb)
 	}
 }
 
