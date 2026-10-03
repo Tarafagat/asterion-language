@@ -6,6 +6,22 @@ Este proyecto todavía no tiene releases etiquetados en git.
 ## [Unreleased]
 
 ### Added
+- **`Contract.service(...)`** en el DSL de manifiesto de plugin
+  (`pluginmanifest/compile.go`): declara una dependencia de
+  infraestructura externa (`postgres`/`mysql`/`mariadb`/`redis`) y a qué
+  claves del propio `config_schema` volcar la conexión una vez resuelta
+  (`maps_host`/`maps_port`/`maps_user`/`maps_password`/`maps_database`/
+  `maps_url`). Compila a `apc.ServiceSpec` (repo hermano
+  `asterion-plugin-contract`, que valida la forma — `Contract.service`
+  acá solo traduce sintaxis a datos, nunca duplica esas reglas). Sumado
+  a la lista de verbos reconocidos del error ASTR301. Documentado en
+  `spec/grammar.md` con un ejemplo completo, y
+  `examples/plugin-services.asterion` cubre los tres casos reales: un
+  postgres con los cinco `maps_*` por separado, un redis que solo mapea
+  host/puerto/password (no acepta `database=`/`user=`), y un servicio
+  que solo quiere una URL de conexión completa (`maps_url` solo). Quien
+  resuelve esto en la práctica es `asterion plugin services` en
+  `asterion-core`, no este repo.
 - **Paquete `providerspec` — el traductor que faltaba para que `apply`
   dejara de ser aspiracional.** Compila `nombre = Provider.gcp.instance(
   region=..., shape_code=..., image=..., network=..., subnet=...,
